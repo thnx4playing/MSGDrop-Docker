@@ -95,7 +95,8 @@ def issue_cookies() -> List[str]:
     if COOKIE_DOMAIN: parts.append(f"Domain={COOKIE_DOMAIN}")
     sess_cookie = "; ".join(parts)
 
-    ui_parts = [f"{UI_COOKIE}=true", "Secure", "Path=/", "SameSite=Lax"]
+    # JS-readable cookie with the same token for WebSocket auth
+    ui_parts = [f"{UI_COOKIE}={token}", "Secure", "Path=/", "SameSite=Lax"]
     if COOKIE_DOMAIN: ui_parts.append(f"Domain={COOKIE_DOMAIN}")
     ui_cookie = "; ".join(ui_parts)
     return [sess_cookie, ui_cookie]
@@ -133,13 +134,30 @@ def verify_code(code: str) -> bool:
         return hmac.compare_digest(code, UNLOCK_CODE)
     return False
 
+unlock_attempts: Dict[str, List[int]] = {}
+
 @app.post("/api/unlock")
 def unlock(body: UnlockBody, req: Request):
+    client_ip = req.client.host if getattr(req, "client", None) else "unknown"
+    now = int(time.time())
+
+    attempts = unlock_attempts.get(client_ip, [])
+    attempts = [t for t in attempts if now - t < 300]
+    if len(attempts) >= 5:
+        raise HTTPException(429, "Too many attempts. Try again in 5 minutes.")
+
     code = (body.code or "").strip()
     if not (len(code) == 4 and code.isdigit()):
+        attempts.append(now)
+        unlock_attempts[client_ip] = attempts
         raise HTTPException(400, "PIN must be 4 digits")
     if not verify_code(code):
+        attempts.append(now)
+        unlock_attempts[client_ip] = attempts
         raise HTTPException(401, "invalid code")
+
+    # Success - clear attempts and issue dual cookies
+    unlock_attempts.pop(client_ip, None)
     cookies = issue_cookies()
     headers = {"Set-Cookie": ", ".join(cookies)}
     return JSONResponse({"success": True}, headers=headers)
