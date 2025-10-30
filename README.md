@@ -90,3 +90,21 @@ Notes
 - For multiple replicas, add a shared pub/sub (e.g., Redis) to fan out WS events.
 - Presence and typing are broadcast events; tailor the client to display appropriately.
 
+Deploy/update from GitHub on Ubuntu
+
+1) First time clone
+
+   sudo mkdir -p /srv/msgdrop && cd /srv/msgdrop
+   git clone https://github.com/thnx4playing/MSGDrop-Docker.git .
+   docker compose up -d --build
+
+2) Subsequent updates (always pull latest then rebuild)
+
+   cd /srv/msgdrop
+   ./deploy.sh
+
+   # or manually:
+   git pull --rebase && docker compose up -d --build --remove-orphans
+
+Ensure your docker-compose.yml contains your production env and mounts /srv/msgdrop-data:/data.
+
