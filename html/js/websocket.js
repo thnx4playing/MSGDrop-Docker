@@ -84,13 +84,13 @@ var WebSocketManager = {
           this.sendHeartbeat();
         }.bind(this), 30000);
         
-        // Send initial heartbeat immediately
+        // Send ONE heartbeat immediately
         this.sendHeartbeat();
         
-        // Request other users to announce their presence immediately
+        // Wait 500ms, then request presence once
         setTimeout(function(){
           this.requestPresence();
-        }.bind(this), 100);
+        }.bind(this), 500);
         
         // Request game list immediately on connect
         setTimeout(function(){
@@ -103,8 +103,23 @@ var WebSocketManager = {
           var msg = JSON.parse(ev.data || '{}');
           console.log('[WS] Received message:', msg);
           
-          if(msg.type === 'update' && msg.data){
-            if(this.onUpdateCallback) this.onUpdateCallback(msg.data);
+          if(msg.type === 'update'){
+            // Handle both {type: 'update', data: {...}} (direct response) and {type: 'update'} (broadcast)
+            if(msg.data){
+              // Direct response with full drop data (from chat/gif actions)
+              if(this.onUpdateCallback) this.onUpdateCallback(msg.data);
+            } else {
+              // Broadcast update notification - trigger refresh via polling or fetch
+              // The callback will handle fetching fresh data if needed
+              if(this.onUpdateCallback && typeof API !== 'undefined'){
+                // Fetch fresh data when receiving broadcast update
+                API.fetchDrop(this.dropId).then(function(data){
+                  if(this.onUpdateCallback) this.onUpdateCallback(data);
+                }.bind(this)).catch(function(e){
+                  console.error('[WS] Failed to fetch drop after update:', e);
+                });
+              }
+            }
           } else if(msg.type === 'typing' && msg.data){
             if(this.onTypingCallback) this.onTypingCallback(msg.data);
           } else if(msg.type === 'presence' && msg.data){
@@ -117,6 +132,9 @@ var WebSocketManager = {
             if(this.onGameListCallback) this.onGameListCallback(msg.data);
           } else if(msg.type === 'streak' && msg.data){
             if(this.onStreakCallback) this.onStreakCallback(msg.data);
+          } else if(msg.type === 'error'){
+            console.error('[WS] Server error:', msg.message);
+            alert('Error: ' + (msg.message || 'Unknown error'));
           }
         } catch(e){
           console.error('[WS] Parse error:', e);
@@ -251,6 +269,7 @@ var WebSocketManager = {
     if(!this.ws || this.ws.readyState !== 1) return;
     
     try {
+      // Only send YOUR OWN user role, not everyone's state
       this.ws.send(JSON.stringify({
         action: 'presence',
         payload: { 
@@ -261,6 +280,54 @@ var WebSocketManager = {
       }));
     } catch(e){
       console.error('[WS] Send heartbeat failed:', e);
+    }
+  },
+
+  /**
+   * Send text message via WebSocket
+   */
+  sendMessage: function(text, user, clientId){
+    if(!this.ws || this.ws.readyState !== 1) return false;
+    
+    try {
+      this.ws.send(JSON.stringify({
+        action: 'chat',
+        payload: {
+          text: text,
+          user: user,
+          clientId: clientId
+        }
+      }));
+      return true;
+    } catch(e){
+      console.error('[WS] Send message failed:', e);
+      return false;
+    }
+  },
+
+  /**
+   * Send GIF message via WebSocket
+   */
+  sendGIF: function(gifData, user, clientId){
+    if(!this.ws || this.ws.readyState !== 1) return false;
+    
+    try {
+      this.ws.send(JSON.stringify({
+        action: 'gif',
+        payload: {
+          gifUrl: gifData.fullUrl,
+          gifPreview: gifData.previewUrl,
+          gifWidth: gifData.width,
+          gifHeight: gifData.height,
+          title: gifData.title,
+          user: user,
+          clientId: clientId
+        }
+      }));
+      return true;
+    } catch(e){
+      console.error('[WS] Send GIF failed:', e);
+      return false;
     }
   },
 
@@ -292,24 +359,27 @@ var WebSocketManager = {
     
     if(!user) return;
     
+    // Clear existing timeout when receiving new heartbeat
+    if(this.presenceTimeouts.has(user)){
+      clearTimeout(this.presenceTimeouts.get(user));
+      this.presenceTimeouts.delete(user);
+    }
+    
     // Update presence state
     this.presenceState.set(user, { state: state, ts: ts });
     
-    // Clear existing timeout
-    if(this.presenceTimeouts.has(user)){
-      clearTimeout(this.presenceTimeouts.get(user));
-    }
-    
-    // Set timeout to mark as away after 60 seconds of no heartbeat
-    var timeout = setTimeout(function(){
-      this.updatePresence(user, false);
-      this.presenceTimeouts.delete(user);
-    }.bind(this), 60000);
-    
-    this.presenceTimeouts.set(user, timeout);
-    
-    // Update UI
+    // Update UI immediately
     this.updatePresence(user, state === 'active');
+    
+    // Set timeout to mark as away after 45 seconds (not 60) of no heartbeat
+    // Only set timeout for 'active' state
+    if(state === 'active'){
+      var timeout = setTimeout(function(){
+        this.updatePresence(user, false);
+        this.presenceTimeouts.delete(user);
+      }.bind(this), 45000);
+      this.presenceTimeouts.set(user, timeout);
+    }
   },
 
   /**

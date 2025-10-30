@@ -449,6 +449,20 @@ var App = {
     
     console.log('Sending GIF:', gifData);
     
+    // Try WebSocket first (faster, real-time)
+    if(WebSocketManager.ws && WebSocketManager.ws.readyState === 1){
+      var sent = WebSocketManager.sendGIF(gifData, this.myRole, this.myClientId);
+      if(sent){
+        // GIF sent via WebSocket - response will come via onmessage handler
+        // Update streak (non-blocking)
+        if(typeof Streak !== 'undefined'){
+          Streak.checkAndUpdate(this.dropId);
+        }
+        return;
+      }
+    }
+    
+    // Fallback to HTTP POST if WebSocket unavailable
     var payload = {
       text: '[GIF: ' + (gifData.title || 'GIF') + ']',
       prevVersion: Messages.currentVersion,
@@ -509,6 +523,30 @@ var App = {
     
     try{
       console.log('Sending message:', text);
+      
+      // Try WebSocket first (faster, real-time)
+      if(WebSocketManager.ws && WebSocketManager.ws.readyState === 1){
+        var sent = WebSocketManager.sendMessage(text, this.myRole, this.myClientId);
+        if(sent){
+          // Message sent via WebSocket - response will come via onmessage handler
+          // Clear input immediately for better UX
+          UI.els.reply.value='';
+          UI.els.reply.style.height = 'auto';
+          
+          // Check and update streak after posting (non-blocking)
+          if(typeof Streak !== 'undefined'){
+            Streak.checkAndUpdate(this.dropId);
+          }
+          
+          // Re-enable button
+          setTimeout(function(){
+            if(UI.els.postBtn) UI.els.postBtn.disabled=false;
+          }, 500);
+          return;
+        }
+      }
+      
+      // Fallback to HTTP POST if WebSocket unavailable
       var res = await API.postMessage(this.dropId, text, Messages.currentVersion, this.myRole, this.myClientId);
       if (!res.ok){ 
         if(res.status === 409){
