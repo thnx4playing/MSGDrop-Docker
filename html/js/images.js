@@ -111,45 +111,22 @@ var Images = {
   },
 
   upload: async function(file){
-    // Show upload status
     this.showUploadStatus('Uploading image...');
-    
     try{
-      var thumbBlob=await this.makeThumb(file,512);
-      
-      var dropId=encodeURIComponent(App.dropId);
-      var up = await API.uploadImage(dropId, file);
-      
-      var origRes = await fetch(up.original.putUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': file.type || 'image/jpeg' },
-        body: file
-      });
-      if(!origRes.ok){ 
-        throw new Error('Failed to upload original image to S3: ' + origRes.status); 
+      var dropId = encodeURIComponent(App.dropId);
+      // Server handles the upload and returns full drop payload
+      var res = await API.uploadImage(dropId, file);
+      if(res && res.messages){
+        Messages.applyDrop(res);
       }
-      
-      var thumbRes = await fetch(up.thumb.putUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'image/jpeg' },
-        body: thumbBlob
-      });
-      
-      if(!thumbRes.ok){ 
-        throw new Error('Failed to upload thumbnail to S3: ' + thumbRes.status); 
+      if(res && res.images){
+        Images.list = res.images.map(function(im){
+          return { id: im.imageId, urls: { thumb: im.thumbUrl, original: im.originalUrl }, uploadedAt: im.uploadedAt };
+        });
+        Images.render();
       }
-      
-      await this.fetch(dropId, true);
-      
-      // Update status
-      this.showUploadStatus('Sending...', false);
-      
-      // Send image as message (like GIF)
-      await this.postImageMessage(up.original.url, up.thumb.url);
-      
-      // Hide status after success
       this.hideUploadStatus();
-      
+      setTimeout(function(){ if(UI.els.chatContainer){ UI.els.chatContainer.scrollTop = UI.els.chatContainer.scrollHeight; } }, 100);
     }catch(err){ 
       console.error('Upload error:', err);
       this.showUploadStatus('Upload failed', true);
@@ -179,58 +156,7 @@ var Images = {
     }
   },
 
-  postImageMessage: async function(originalUrl, thumbUrl){
-    // Post image as a message in the chat
-    var payload = {
-      text: '[Image]',
-      prevVersion: Messages.currentVersion,
-      user: App.myRole,
-      clientId: App.myClientId,
-      // Image-specific fields
-      imageUrl: originalUrl,
-      imageThumb: thumbUrl,
-      messageType: 'image'
-    };
-    
-    try {
-      var res = await fetch(CONFIG.API_BASE_URL + '/chat/' + App.dropId, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify(payload)
-      });
-      
-      if(!res.ok){
-        if(res.status === 409){
-          console.log('Version conflict, retrying...');
-          await Messages.fetch();
-          await this.postImageMessage(originalUrl, thumbUrl);
-        } else {
-          throw new Error('Failed to post image message: ' + res.status);
-        }
-        return;
-      }
-      
-      // Parse response and update messages (THIS WAS MISSING!)
-      var data = await res.json();
-      Messages.applyDrop(data);
-      
-      // Force scroll to bottom for our own image upload
-      // (Unlike GIFs which are instant, images take time to upload,
-      //  so user may not be "at bottom" anymore by the time this runs)
-      setTimeout(function(){
-        if(UI.els.chatContainer){
-          UI.els.chatContainer.scrollTop = UI.els.chatContainer.scrollHeight;
-        }
-      }, 100);
-      
-      console.log('Image message sent successfully');
-      
-    } catch(err){
-      console.error('Error posting image message:', err);
-      // Don't alert - image is already uploaded to library
-    }
-  },
+  // postImageMessage removed; server handles message creation during upload
 
   makeThumb: function(file, max){ 
     return new Promise(function(resolve,reject){ 

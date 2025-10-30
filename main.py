@@ -606,8 +606,18 @@ async def ws_endpoint(ws: WebSocket):
                 await ws.send_json({"type": "pong", "ts": int(time.time()*1000)})
             elif t == "notify":
                 notify(f"{msg}")
-            elif t == "presence" or t == "presence_request":
-                await hub.broadcast(drop, {"type": t, "payload": payload, "online": hub._online(drop)})
+            elif t == "presence":
+                try:
+                    presence_payload = {
+                        "user": user,
+                        "state": (payload or {}).get("state", "active"),
+                        "ts": (payload or {}).get("ts", int(time.time() * 1000)),
+                    }
+                except Exception:
+                    presence_payload = {"user": user, "state": "active", "ts": int(time.time()*1000)}
+                await hub.broadcast(drop, {"type": "presence", "data": presence_payload, "online": hub._online(drop)})
+            elif t == "presence_request":
+                await hub.broadcast(drop, {"type": "presence_request", "data": {"ts": int(time.time() * 1000)}})
             elif t == "game":
                 # passthrough game events for now
                 await hub.broadcast(drop, {"type": "game", "payload": payload})
