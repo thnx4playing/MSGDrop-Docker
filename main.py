@@ -356,7 +356,8 @@ async def post_message(drop_id: str,
     # Notify only when E posts a new message, debounce 60s to avoid spam
     if (user or "").upper() == "E" and _should_notify("msg", drop_id, 60):
         notify("E posted a new message")
-    return {"ok": True, "id": msg_id, "seq": next_seq, "ts": ts}
+    # Return fresh list to match frontend expectations
+    return list_messages(drop_id, req=req)
 
 # --- Message edit/delete/react and image delete ---
 from fastapi import Body
