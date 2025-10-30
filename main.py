@@ -590,16 +590,15 @@ def root_redirect():
     return RedirectResponse(url="/msgdrop", status_code=307)
 
 @app.get("/unlock")
-def unlock_redirect():
-    # keep /unlock but serve under /msgdrop for consistency
-    return RedirectResponse(url="/msgdrop/unlock", status_code=307)
-
-@app.get("/msgdrop/unlock")
 def unlock_page():
     index_path = Path("html/unlock.html")
     if index_path.exists():
         return FileResponse(index_path)
     return RedirectResponse(url="/msgdrop", status_code=302)
+
+@app.get("/msgdrop/unlock")
+def unlock_redirect():
+    return RedirectResponse(url="/unlock", status_code=307)
 
 
 if __name__ == "__main__":
