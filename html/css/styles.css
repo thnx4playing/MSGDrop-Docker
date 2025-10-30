@@ -1761,8 +1761,8 @@ html{overscroll-behavior-y:contain}
 .image-message {
   padding: 0 !important;
   background: transparent !important;
-  max-width: 280px;
-  min-width: 140px;
+  max-width: 140px; /* 50% of previous */
+  min-width: 140px; /* square footprint */
 }
 
 .image-container {
@@ -1782,10 +1782,9 @@ html{overscroll-behavior-y:contain}
 
 .image-thumbnail {
   display: block;
-  width: 100%;
-  height: auto;
-  max-height: 280px;
-  object-fit: contain;
+  width: 140px;   /* fixed square */
+  height: 140px;  /* fixed square */
+  object-fit: cover; /* crop to square */
   border-radius: 12px;
   background: var(--surface);
   cursor: pointer;
@@ -1812,12 +1811,12 @@ html{overscroll-behavior-y:contain}
 /* Mobile optimization for images */
 @media (max-width: 768px) {
   .image-message {
-    max-width: 200px;
-    min-width: 100px;
+    max-width: 120px;
+    min-width: 120px;
   }
-  
   .image-thumbnail {
-    max-height: 200px;
+    width: 120px;
+    height: 120px;
   }
 }
 

@@ -28,7 +28,7 @@ var API = {
       credentials:'include'  // Send session cookie
     });
     if (!res.ok){ 
-      if(res.status === 403) {
+      if(res.status === 403 || res.status === 401) {
         // Session expired - redirect to unlock
         var nextUrl = encodeURIComponent(window.location.pathname + window.location.search);
         window.location.href = '/unlock/?next=' + nextUrl;
@@ -110,7 +110,7 @@ var API = {
       credentials:'include'
     });
     if(!res.ok){
-      if(res.status === 403){
+      if(res.status === 403 || res.status === 401){
         var nextUrl = encodeURIComponent(window.location.pathname + window.location.search);
         window.location.href = '/unlock/?next=' + nextUrl;
         throw new Error('AUTH_REQUIRED');
