@@ -351,6 +351,11 @@ async def post_message(drop_id: str,
                 await f.write(chunk)
         mime = file.content_type or mimetypes.guess_type(dest.name)[0] or "application/octet-stream"
         message_type = "image"
+        # Set image URLs for display in chat
+        image_url = f"/blob/{blob_id}"
+        image_thumb = f"/blob/{blob_id}"
+        if not text_:
+            text_ = "[Image]"
 
     with engine.begin() as conn:
         # allocate next seq per drop
@@ -358,11 +363,11 @@ async def post_message(drop_id: str,
         next_seq = int(row["next"]) if row else 1
         now_ms = ts
         conn.execute(text("""
-          insert into messages(id,drop_id,seq,ts,created_at,updated_at,user,client_id,message_type,text,blob_id,mime,reactions,gif_url,image_url)
-          values(:id,:d,:seq,:ts,:ca,:ua,:u,:cid,:mt,:tx,:b,:m,:rx,:gurl,:iurl)
+          insert into messages(id,drop_id,seq,ts,created_at,updated_at,user,client_id,message_type,text,blob_id,mime,reactions,gif_url,image_url,image_thumb)
+          values(:id,:d,:seq,:ts,:ca,:ua,:u,:cid,:mt,:tx,:b,:m,:rx,:gurl,:iurl,:ithumb)
         """), {"id": msg_id, "d": drop_id, "seq": next_seq, "ts": ts, "ca": now_ms, "ua": now_ms,
                 "u": user, "cid": None, "mt": message_type, "tx": text_, "b": blob_id, "m": mime, "rx": "{}",
-                "gurl": gif_url, "iurl": image_url})
+                "gurl": gif_url, "iurl": image_url, "ithumb": image_thumb})
 
     await hub.broadcast(drop_id, {
         "type": "update",
@@ -550,15 +555,27 @@ class Hub:
     async def join(self, drop_id: str, ws: WebSocket, user: str = "anon"):
         await ws.accept()
         self.rooms.setdefault(drop_id, {})[ws] = user
-        await self.broadcast(drop_id, {"type": "presence", "online": self._online(drop_id)})
+        # Broadcast specific user's online state
+        await self.broadcast(drop_id, {
+            "type": "presence",
+            "data": {"user": user, "state": "active", "ts": int(time.time() * 1000)},
+            "online": self._online(drop_id)
+        })
 
     async def leave(self, drop_id: str, ws: WebSocket):
+        # Get user before removal
+        user_label = self.rooms.get(drop_id, {}).get(ws, "anon")
         try:
             del self.rooms.get(drop_id, {})[ws]
             if not self.rooms.get(drop_id): self.rooms.pop(drop_id, None)
         except KeyError:
             pass
-        await self.broadcast(drop_id, {"type": "presence", "online": self._online(drop_id)})
+        # Broadcast user's offline state
+        await self.broadcast(drop_id, {
+            "type": "presence",
+            "data": {"user": user_label, "state": "offline", "ts": int(time.time() * 1000)},
+            "online": self._online(drop_id)
+        })
 
     def _online(self, drop_id: str) -> int:
         return len(self.rooms.get(drop_id, {}))
