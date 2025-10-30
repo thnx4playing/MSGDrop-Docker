@@ -27,6 +27,16 @@ else
 fi
 
 echo "[deploy] Using compose file: $USE_COMPOSE"
+# Stop and remove existing services/containers safely
+echo "[deploy] Bringing down any existing stack..."
+docker compose -f "$USE_COMPOSE" down --remove-orphans || true
+
+# Ensure legacy container name is cleared if it exists
+if docker ps -a --format '{{.Names}}' | grep -xq "msgdrop"; then
+  echo "[deploy] Removing existing container 'msgdrop'..."
+  docker rm -f msgdrop || true
+fi
+
 echo "[deploy] Building and (re)starting with docker compose..."
 docker compose -f "$USE_COMPOSE" up -d --build --remove-orphans
 
