@@ -172,10 +172,14 @@ def _verify_token(token: str) -> bool:
         if not hmac.compare_digest(sign(payload), mac):
             return False
         data = json.loads(payload.decode("utf-8"))
-        if int(time.time()) > int(data.get("exp", 0)):
+        exp_time = int(data.get("exp", 0))
+        current_time = int(time.time())
+        logger.debug(f"Token check: exp={exp_time}, now={current_time}, diff={exp_time - current_time}")
+        if current_time > exp_time:
             return False
         return True
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Token verification error: {e}")
         return False
 
 def require_session(req: Request):
@@ -555,11 +559,22 @@ class Hub:
     async def join(self, drop_id: str, ws: WebSocket, user: str = "anon"):
         await ws.accept()
         self.rooms.setdefault(drop_id, {})[ws] = user
-        # Broadcast specific user's online state
-        await self.broadcast(drop_id, {
+        
+        # Send current presence state to the NEW connection only
+        existing_users = set(self.rooms.get(drop_id, {}).values())
+        for existing_user in existing_users:
+            if existing_user != user:
+                await ws.send_json({
+                    "type": "presence",
+                    "data": {"user": existing_user, "state": "active", "ts": int(time.time() * 1000)},
+                    "online": len(existing_users)
+                })
+        
+        # Then broadcast this user's join to others (not self)
+        await self.broadcast_to_others(drop_id, ws, {
             "type": "presence",
             "data": {"user": user, "state": "active", "ts": int(time.time() * 1000)},
-            "online": self._online(drop_id)
+            "online": len(existing_users)
         })
 
     async def leave(self, drop_id: str, ws: WebSocket):
@@ -584,6 +599,20 @@ class Hub:
         conns = list(self.rooms.get(drop_id, {}).keys())
         dead = []
         for ws in conns:
+            try:
+                await ws.send_json(payload)
+            except Exception:
+                dead.append(ws)
+        for ws in dead:
+            await self.leave(drop_id, ws)
+
+    async def broadcast_to_others(self, drop_id: str, sender_ws: WebSocket, payload: Dict[str, Any]):
+        """Broadcast to all connections in room EXCEPT sender"""
+        conns = list(self.rooms.get(drop_id, {}).keys())
+        dead = []
+        for ws in conns:
+            if ws == sender_ws:
+                continue
             try:
                 await ws.send_json(payload)
             except Exception:
@@ -634,68 +663,85 @@ async def ws_endpoint(ws: WebSocket):
                 except Exception:
                     presence_payload = {"user": user, "state": "active", "ts": int(time.time()*1000)}
                 # Broadcast to all OTHER connections (not sender) - presence is ephemeral
-                await hub.broadcast(drop, {"type": "presence", "data": presence_payload, "online": hub._online(drop)})
+                await hub.broadcast_to_others(drop, ws, {"type": "presence", "data": presence_payload, "online": hub._online(drop)})
             elif t == "presence_request":
                 await hub.broadcast(drop, {"type": "presence_request", "data": {"ts": int(time.time() * 1000)}})
             elif t == "chat":
-                # Handle text message via WebSocket
+                # Text message via WebSocket
                 text_val = (payload or {}).get("text") or ""
                 msg_user = (payload or {}).get("user") or user
                 client_id = (payload or {}).get("clientId")
+                
                 if not text_val:
-                    await ws.send_json({"type": "error", "message": "text required"})
+                    await ws.send_json({"type": "error", "error": "text required"})
                     continue
-                # Save message to DB (same logic as POST endpoint)
+                
+                # Insert into DB
                 ts = int(time.time() * 1000)
                 msg_id = secrets.token_hex(8)
+                
                 with engine.begin() as conn:
                     row = conn.execute(text("select coalesce(max(seq),0)+1 as next from messages where drop_id=:d"), {"d": drop}).mappings().first()
                     next_seq = int(row["next"]) if row else 1
-                    now_ms = ts
+                    
                     conn.execute(text("""
-                      insert into messages(id,drop_id,seq,ts,created_at,updated_at,user,client_id,message_type,text,reactions)
-                      values(:id,:d,:seq,:ts,:ca,:ua,:u,:cid,:mt,:tx,:rx)
-                    """), {"id": msg_id, "d": drop, "seq": next_seq, "ts": ts, "ca": now_ms, "ua": now_ms,
-                            "u": msg_user, "cid": client_id, "mt": "text", "tx": text_val, "rx": "{}"})
-                # Broadcast update and return full drop payload
+                        insert into messages(id,drop_id,seq,ts,created_at,updated_at,user,client_id,message_type,text,reactions)
+                        values(:id,:d,:seq,:ts,:ca,:ua,:u,:cid,:mt,:tx,:rx)
+                    """), {
+                        "id": msg_id, "d": drop, "seq": next_seq, "ts": ts,
+                        "ca": ts, "ua": ts, "u": msg_user, "cid": client_id,
+                        "mt": "text", "tx": text_val, "rx": "{}"
+                    })
+                
+                # Broadcast update to all connections
                 await hub.broadcast(drop, {"type": "update"})
-                # Notify when E posts a new message, debounced
+                
+                # Notify if E posts, debounced
                 if (msg_user or "").upper() == "E" and _should_notify("msg", drop, 60):
                     notify("E posted a new message")
+                
                 # Return full drop payload to sender
                 full_drop = list_messages(drop, req=None)
                 await ws.send_json({"type": "update", "data": full_drop})
             elif t == "gif":
-                # Handle GIF message via WebSocket
-                msg_user = (payload or {}).get("user") or user
-                client_id = (payload or {}).get("clientId")
+                # GIF message via WebSocket
                 gif_url = (payload or {}).get("gifUrl")
                 gif_preview = (payload or {}).get("gifPreview")
                 gif_width = (payload or {}).get("gifWidth", 0)
                 gif_height = (payload or {}).get("gifHeight", 0)
-                title = (payload or {}).get("title", "[GIF]")
+                title = (payload or {}).get("title") or "[GIF]"
+                msg_user = (payload or {}).get("user") or user
+                client_id = (payload or {}).get("clientId")
+                
                 if not gif_url:
-                    await ws.send_json({"type": "error", "message": "gifUrl required"})
+                    await ws.send_json({"type": "error", "error": "gifUrl required"})
                     continue
-                # Save GIF message to DB
+                
+                # Insert into DB
                 ts = int(time.time() * 1000)
                 msg_id = secrets.token_hex(8)
-                text_val = f"[GIF: {title}]"
+                
                 with engine.begin() as conn:
                     row = conn.execute(text("select coalesce(max(seq),0)+1 as next from messages where drop_id=:d"), {"d": drop}).mappings().first()
                     next_seq = int(row["next"]) if row else 1
-                    now_ms = ts
+                    
                     conn.execute(text("""
-                      insert into messages(id,drop_id,seq,ts,created_at,updated_at,user,client_id,message_type,text,gif_url,gif_preview,gif_width,gif_height,reactions)
-                      values(:id,:d,:seq,:ts,:ca,:ua,:u,:cid,:mt,:tx,:gurl,:gprev,:gw,:gh,:rx)
-                    """), {"id": msg_id, "d": drop, "seq": next_seq, "ts": ts, "ca": now_ms, "ua": now_ms,
-                            "u": msg_user, "cid": client_id, "mt": "gif", "tx": text_val,
-                            "gurl": gif_url, "gprev": gif_preview, "gw": gif_width, "gh": gif_height, "rx": "{}"})
-                # Broadcast update and return full drop payload
+                        insert into messages(id,drop_id,seq,ts,created_at,updated_at,user,client_id,message_type,text,reactions,gif_url,gif_preview,gif_width,gif_height)
+                        values(:id,:d,:seq,:ts,:ca,:ua,:u,:cid,:mt,:tx,:rx,:gurl,:gprev,:gw,:gh)
+                    """), {
+                        "id": msg_id, "d": drop, "seq": next_seq, "ts": ts,
+                        "ca": ts, "ua": ts, "u": msg_user, "cid": client_id,
+                        "mt": "gif", "tx": f"[GIF: {title}]", "rx": "{}",
+                        "gurl": gif_url, "gprev": gif_preview, "gw": gif_width, "gh": gif_height
+                    })
+                
+                # Broadcast update to all connections
                 await hub.broadcast(drop, {"type": "update"})
-                # Notify when E posts a new message, debounced
-                if (msg_user or "").upper() == "E" and _should_notify("msg", drop, 60):
-                    notify("E posted a new message")
+                
+                # Notify if E posts, debounced
+                if (msg_user or "").upper() == "E" and _should_notify("gif", drop, 60):
+                    notify("E sent a GIF")
+                
                 # Return full drop payload to sender
                 full_drop = list_messages(drop, req=None)
                 await ws.send_json({"type": "update", "data": full_drop})
