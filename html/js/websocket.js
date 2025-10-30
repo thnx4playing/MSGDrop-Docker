@@ -101,6 +101,7 @@ var WebSocketManager = {
       this.ws.onmessage = function(ev){
         try {
           var msg = JSON.parse(ev.data || '{}');
+          console.log('[WS] Received message:', msg);
           
           if(msg.type === 'update' && msg.data){
             if(this.onUpdateCallback) this.onUpdateCallback(msg.data);
@@ -158,6 +159,11 @@ var WebSocketManager = {
           console.error('[WS] Session token missing during connection error');
         } else if(sessionToken === 'true'){
           console.error('[WS] Session token has old format - need to re-login');
+        }
+        // Proactively redirect to unlock if token missing
+        if(!sessionToken || sessionToken === 'true'){
+          var returnUrl = encodeURIComponent(window.location.pathname + window.location.search);
+          window.location.href = '/unlock/?next=' + returnUrl;
         }
       }.bind(this);
       

@@ -42,6 +42,9 @@ var App = {
 
     // Load initial data and connect
     this.loadInitialData();
+
+    // Periodic session validation (redirect if expired)
+    this.startSessionChecks();
   },
   
   // ✨ NEW: Initialize GIPHY picker
@@ -58,6 +61,21 @@ var App = {
     this.giphyPicker = new GiphyPicker('mrWcrFYs1lvhwbxxNNM3hmb9hUkFfbk4');
     
     console.log('✓ GIPHY picker initialized');
+  },
+
+  // Periodic session check via lightweight HEAD call
+  startSessionChecks: function(){
+    var self = this;
+    setInterval(async function(){
+      try{
+        var url = CONFIG.API_BASE_URL.replace(/\/$/,'') + '/chat/' + encodeURIComponent(self.dropId);
+        var res = await fetch(url, { method:'HEAD', credentials:'include' });
+        if(res.status === 401 || res.status === 403){
+          var nextUrl = encodeURIComponent(window.location.pathname + window.location.search);
+          window.location.href = '/unlock/?next=' + nextUrl;
+        }
+      }catch(e){ /* ignore network hiccups */ }
+    }, 60000);
   },
   
   loadInitialData: async function(){
@@ -429,7 +447,7 @@ var App = {
       return;
     }
     
-    console.log('Sending GIF message:', gifData);
+    console.log('Sending GIF:', gifData);
     
     var payload = {
       text: '[GIF: ' + (gifData.title || 'GIF') + ']',
@@ -490,6 +508,7 @@ var App = {
     if(UI.els.postBtn) UI.els.postBtn.disabled=true;
     
     try{
+      console.log('Sending message:', text);
       var res = await API.postMessage(this.dropId, text, Messages.currentVersion, this.myRole, this.myClientId);
       if (!res.ok){ 
         if(res.status === 409){
