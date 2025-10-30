@@ -1,4 +1,4 @@
-import os, json, hmac, hashlib, time, secrets, mimetypes
+import os, json, hmac, hashlib, time, secrets, mimetypes, logging
 from typing import Optional, Dict, Any, List
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form, Request, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
@@ -51,6 +51,8 @@ SESSION_SIGN_KEY_BYTES = SESSION_SIGN_KEY.encode("utf-8")
 app = FastAPI(title="msgdrop-mono")
 engine: Engine = create_engine(f"sqlite:///{DB_PATH}", future=True)
 BLOB_DIR.mkdir(parents=True, exist_ok=True)
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def init_db():
     # Create parent dir
@@ -139,6 +141,19 @@ def require_session(req: Request):
     if not _verify_token(c):
         raise HTTPException(401, "bad session")
 
+# --- Simple generic rate limiter (per-IP window)
+from collections import defaultdict
+request_counts = defaultdict(list)
+
+def rate_limit(req: Request, max_requests: int = 30, window: int = 60):
+    client_ip = req.client.host if getattr(req, "client", None) else "unknown"
+    now = int(time.time())
+    lst = request_counts[client_ip]
+    lst[:] = [t for t in lst if now - t < window]
+    if len(lst) >= max_requests:
+        raise HTTPException(429, "Rate limit exceeded")
+    lst.append(now)
+
 # --- Health ---
 @app.get("/api/health")
 def health():
@@ -188,6 +203,7 @@ def unlock(body: UnlockBody, req: Request):
 @app.get("/api/chat/{drop_id}")
 def list_messages(drop_id: str, limit: int = 200, before: Optional[int] = None, req: Request = None):
     require_session(req)
+    rate_limit(req, 60, 60)
     sql = "select * from messages where drop_id=:d"
     params = {"d": drop_id}
     if before:
@@ -195,6 +211,7 @@ def list_messages(drop_id: str, limit: int = 200, before: Optional[int] = None, 
     sql += " order by seq desc limit :n"; params["n"] = max(1, min(500, limit))
     with engine.begin() as conn:
         rows = conn.execute(text(sql), params).mappings().all()
+        max_seq = conn.execute(text("select coalesce(max(seq),0) as v from messages where drop_id=:d"), {"d": drop_id}).scalar()
     rows = list(reversed(rows))
     out = []
     images = []
@@ -209,7 +226,7 @@ def list_messages(drop_id: str, limit: int = 200, before: Optional[int] = None, 
                 "ts": o.get("ts")
             })
         out.append(o)
-    return {"dropId": drop_id, "messages": out, "images": images}
+    return {"dropId": drop_id, "version": int(max_seq or 0), "messages": out, "images": images}
 
 @app.post("/api/chat/{drop_id}")
 async def post_message(drop_id: str,
@@ -218,9 +235,27 @@ async def post_message(drop_id: str,
                        file: Optional[UploadFile] = File(default=None),
                        req: Request = None):
     require_session(req)
+    rate_limit(req, 30, 60)
+    logger.info(f"[POST] drop={drop_id} user={user}")
     ts = int(time.time() * 1000)
     msg_id = secrets.token_hex(8)
     blob_id, mime = None, None
+    gif_url = None
+    image_url = None
+    message_type = "text"
+
+    # If JSON body provided (GIF/image URL style)
+    ctype = (req.headers.get("content-type") or "").split(";")[0].strip().lower()
+    if ctype == "application/json":
+        body = await req.json()
+        text_ = body.get("text")
+        user = body.get("user") or user
+        gif_url = body.get("gifUrl")
+        image_url = body.get("imageUrl")
+        if gif_url:
+            message_type = "gif"
+        elif image_url:
+            message_type = "image"
 
     if file:
         suffix = Path(file.filename or "").suffix.lower()
@@ -232,6 +267,7 @@ async def post_message(drop_id: str,
                 if not chunk: break
                 await f.write(chunk)
         mime = file.content_type or mimetypes.guess_type(dest.name)[0] or "application/octet-stream"
+        message_type = "image"
 
     with engine.begin() as conn:
         # allocate next seq per drop
@@ -239,10 +275,11 @@ async def post_message(drop_id: str,
         next_seq = int(row["next"]) if row else 1
         now_ms = ts
         conn.execute(text("""
-          insert into messages(id,drop_id,seq,ts,created_at,updated_at,user,client_id,message_type,text,blob_id,mime,reactions)
-          values(:id,:d,:seq,:ts,:ca,:ua,:u,:cid,:mt,:tx,:b,:m,:rx)
+          insert into messages(id,drop_id,seq,ts,created_at,updated_at,user,client_id,message_type,text,blob_id,mime,reactions,gif_url,image_url)
+          values(:id,:d,:seq,:ts,:ca,:ua,:u,:cid,:mt,:tx,:b,:m,:rx,:gurl,:iurl)
         """), {"id": msg_id, "d": drop_id, "seq": next_seq, "ts": ts, "ca": now_ms, "ua": now_ms,
-                "u": user, "cid": None, "mt": ("image" if blob_id else "text"), "tx": text_, "b": blob_id, "m": mime, "rx": "{}"})
+                "u": user, "cid": None, "mt": message_type, "tx": text_, "b": blob_id, "m": mime, "rx": "{}",
+                "gurl": gif_url, "iurl": image_url})
 
     await hub.broadcast(drop_id, {
         "type": "update",
@@ -259,6 +296,7 @@ from fastapi import Body
 @app.patch("/api/chat/{drop_id}")
 async def edit_message(drop_id: str, body: Dict[str, Any] = Body(...), req: Request = None):
     require_session(req)
+    rate_limit(req, 60, 60)
     seq = body.get("seq")
     text_val = body.get("text")
     if seq is None or text_val is None:
@@ -268,11 +306,12 @@ async def edit_message(drop_id: str, body: Dict[str, Any] = Body(...), req: Requ
         conn.execute(text("update messages set text=:t, updated_at=:u where drop_id=:d and seq=:s"),
                      {"t": text_val, "u": now_ms, "d": drop_id, "s": seq})
     await hub.broadcast(drop_id, {"type": "update"})
-    return {"ok": True}
+    return list_messages(drop_id, req=req)
 
 @app.delete("/api/chat/{drop_id}")
 async def delete_message(drop_id: str, body: Dict[str, Any] = Body(...), req: Request = None):
     require_session(req)
+    rate_limit(req, 60, 60)
     seq = body.get("seq")
     if seq is None:
         raise HTTPException(400, "seq required")
@@ -287,11 +326,12 @@ async def delete_message(drop_id: str, body: Dict[str, Any] = Body(...), req: Re
                 pass
         conn.execute(text("delete from messages where drop_id=:d and seq=:s"), {"d": drop_id, "s": seq})
     await hub.broadcast(drop_id, {"type": "update"})
-    return {"ok": True}
+    return list_messages(drop_id, req=req)
 
 @app.post("/api/chat/{drop_id}/react")
 async def react_message(drop_id: str, body: Dict[str, Any] = Body(...), req: Request = None):
     require_session(req)
+    rate_limit(req, 120, 60)
     seq = body.get("seq")
     emoji = body.get("emoji")
     op = (body.get("op") or "add").lower()
@@ -316,11 +356,12 @@ async def react_message(drop_id: str, body: Dict[str, Any] = Body(...), req: Req
         conn.execute(text("update messages set reactions=:r where drop_id=:d and seq=:s"),
                      {"r": json.dumps(rx, separators=(",", ":")), "d": drop_id, "s": seq})
     await hub.broadcast(drop_id, {"type": "update"})
-    return {"ok": True}
+    return list_messages(drop_id, req=req)
 
 @app.delete("/api/chat/{drop_id}/images/{image_id}")
 async def delete_image(drop_id: str, image_id: str, req: Request = None):
     require_session(req)
+    rate_limit(req, 30, 60)
     # Delete any messages that reference this blob in this drop
     with engine.begin() as conn:
         conn.execute(text("delete from messages where drop_id=:d and blob_id=:b"), {"d": drop_id, "b": image_id})
@@ -329,7 +370,7 @@ async def delete_image(drop_id: str, image_id: str, req: Request = None):
     except Exception:
         pass
     await hub.broadcast(drop_id, {"type": "update"})
-    return {"ok": True}
+    return list_messages(drop_id, req=req)
 
 # --- Streaks (EST midnight window; both users must post each day) ---
 from zoneinfo import ZoneInfo
