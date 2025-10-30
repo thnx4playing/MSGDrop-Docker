@@ -1,6 +1,6 @@
 import os, json, hmac, hashlib, time, secrets, mimetypes, logging
 from typing import Optional, Dict, Any, List
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form, Request, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form, Request, HTTPException, Response
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -142,11 +142,14 @@ def b64url(data: bytes) -> str:
 def sign(payload: bytes) -> bytes:
     return hmac.new(SESSION_SIGN_KEY_BYTES, payload, hashlib.sha256).digest()
 
-def issue_cookies() -> List[str]:
+def _generate_token() -> str:
     exp = int(time.time()) + SESSION_TTL
     payload = json.dumps({"exp": exp}, separators=(",", ":")).encode("utf-8")
     sig = sign(payload)
-    token = b64url(payload + b"." + sig)
+    return b64url(payload + b"." + sig)
+
+def issue_cookies() -> List[str]:
+    token = _generate_token()
     parts = [f'{SESSION_COOKIE}="{token}"', "HttpOnly", "Secure", "Path=/", "SameSite=Lax"]
     if COOKIE_DOMAIN: parts.append(f"Domain={COOKIE_DOMAIN}")
     sess_cookie = "; ".join(parts)
@@ -213,8 +216,30 @@ def verify_code(code: str) -> bool:
 
 unlock_attempts: Dict[str, List[int]] = {}
 
+def _set_session_cookies(response: Response, token: str):
+    # Set HttpOnly session cookie
+    response.set_cookie(
+        key=SESSION_COOKIE,
+        value=token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        domain=(COOKIE_DOMAIN or None),
+        path="/",
+    )
+    # Set JS-readable cookie for WS
+    response.set_cookie(
+        key=UI_COOKIE,
+        value=token,
+        httponly=False,
+        secure=True,
+        samesite="lax",
+        domain=(COOKIE_DOMAIN or None),
+        path="/",
+    )
+
 @app.post("/api/unlock")
-def unlock(body: UnlockBody, req: Request):
+def unlock(body: UnlockBody, req: Request, response: Response):
     client_ip = req.client.host if getattr(req, "client", None) else "unknown"
     now = int(time.time())
 
@@ -235,9 +260,9 @@ def unlock(body: UnlockBody, req: Request):
 
     # Success - clear attempts and issue dual cookies
     unlock_attempts.pop(client_ip, None)
-    cookies = issue_cookies()
-    headers = {"Set-Cookie": ", ".join(cookies)}
-    return JSONResponse({"success": True}, headers=headers)
+    token = _generate_token()
+    _set_session_cookies(response, token)
+    return {"success": True}
 
 # --- Chat APIs ---
 @app.get("/api/chat/{drop_id}")
