@@ -1,0 +1,11 @@
+* text=auto eol=lf
+
+# Ensure scripts/configs keep LF
+*.sh text eol=lf
+*.py text eol=lf
+*.js text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+docker-compose.yml text eol=lf
+Dockerfile text eol=lf
+

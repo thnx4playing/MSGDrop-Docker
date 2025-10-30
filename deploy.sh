@@ -5,12 +5,13 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-echo "[deploy] Fetching latest code..."
+echo "[deploy] Force-syncing to origin/main..."
 if [ -d .git ]; then
   git fetch --all --prune
-  git pull --rebase
+  git reset --hard origin/main
+  git clean -fd
 else
-  echo "[deploy] Not a git repo; skipping pull"
+  echo "[deploy] Not a git repo; skipping sync"
 fi
 
 echo "[deploy] Building and (re)starting with docker compose..."
