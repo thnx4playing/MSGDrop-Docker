@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Unlock</title>
+    <link rel="stylesheet" href="/msgdrop/css/styles.css"/>
+    <style>body{max-width:480px;margin:48px auto;font-family:system-ui,Arial,sans-serif}</style>
+  </head>
+  <body>
+    <h1>Unlock</h1>
+    <p>Enter your 4-digit PIN to continue.</p>
+    <form id="f">
+      <input id="pin" inputmode="numeric" maxlength="4" placeholder="1234" autocomplete="one-time-code"/>
+      <button type="submit">Unlock</button>
+    </form>
+    <div id="msg" style="margin-top:12px;color:#c00"></div>
+    <script>
+      const q = new URLSearchParams(location.search);
+      const next = q.get('next') || '/msgdrop';
+      document.getElementById('f').addEventListener('submit', async function(ev){
+        ev.preventDefault();
+        const code = (document.getElementById('pin').value||'').trim();
+        try{
+          const r = await fetch('/api/unlock', {method:'POST', headers:{'content-type':'application/json'}, credentials:'include', body:JSON.stringify({code})});
+          if(!r.ok){
+            document.getElementById('msg').textContent = 'Invalid code or rate limited. Try again.';
+            return;
+          }
+          location.href = next;
+        }catch(e){
+          document.getElementById('msg').textContent = 'Network error. Try again.';
+        }
+      });
+    </script>
+  </body>
+  </html>
+

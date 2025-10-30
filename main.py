@@ -2,6 +2,7 @@ import os, json, hmac, hashlib, time, secrets, mimetypes, logging
 from typing import Optional, Dict, Any, List
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form, Request, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import create_engine, text
@@ -583,6 +584,18 @@ async def ws_endpoint(ws: WebSocket):
 # --- Static UI: serve /msgdrop
 app.mount("/msgdrop", StaticFiles(directory="html", html=True), name="msgdrop")
 
+
+@app.get("/")
+def root_redirect():
+    return RedirectResponse(url="/msgdrop", status_code=307)
+
+@app.get("/unlock")
+def unlock_page():
+    index_path = Path("html/unlock.html")
+    if index_path.exists():
+        return FileResponse(index_path)
+    # fallback to app unlock UI within main page
+    return RedirectResponse(url="/msgdrop", status_code=302)
 
 
 if __name__ == "__main__":
