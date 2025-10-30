@@ -29,8 +29,14 @@ try:
     _cfg = json.loads(MSGDROP_SECRET_JSON) if MSGDROP_SECRET_JSON else {}
 except Exception:
     _cfg = {}
+# Twilio config
+TWILIO_ACCOUNT_SID = _cfg.get("account_sid", "")
+TWILIO_AUTH_TOKEN = _cfg.get("auth_token", "")
+TWILIO_FROM_NUMBER = _cfg.get("from_number") or _cfg.get("from", "")
+NOTIFY_NUMBERS = _cfg.get("notify_numbers") or _cfg.get("notify") or _cfg.get("to_numbers") or []
+if isinstance(NOTIFY_NUMBERS, str):
+    NOTIFY_NUMBERS = [NOTIFY_NUMBERS]
 EDGE_AUTH_TOKEN = _cfg.get("edgeAuthToken", "")  # optional in mono mode
-NOTIFY_NUMBERS  = _cfg.get("notify_numbers", [])
 
 UNLOCK_CODE_HASH = os.environ.get("UNLOCK_CODE_HASH", "")
 UNLOCK_CODE      = os.environ.get("UNLOCK_CODE", "")
@@ -90,9 +96,42 @@ def init_db():
 
 init_db()
 
-# --- Simple notifications (console only in mono mode) ---
+# --- Twilio notifications ---
+_last_notify: Dict[str, int] = {}
+
+def _should_notify(kind: str, drop_id: str, window_sec: int = 60) -> bool:
+    key = f"{kind}:{drop_id}"
+    now = int(time.time())
+    last = _last_notify.get(key, 0)
+    if now - last < window_sec:
+        return False
+    _last_notify[key] = now
+    return True
+
 def notify(text: str):
-    print(f"[notify] {text}")
+    """Send SMS notification via Twilio"""
+    logger.info(f"[notify] {text}")
+    if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN or not TWILIO_FROM_NUMBER:
+        logger.warning("[notify] Twilio not configured, skipping SMS")
+        return
+    if not NOTIFY_NUMBERS:
+        logger.warning("[notify] No notify numbers configured")
+        return
+    try:
+        from twilio.rest import Client
+        client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+        for to_number in NOTIFY_NUMBERS:
+            try:
+                message = client.messages.create(
+                    body=text,
+                    from_=TWILIO_FROM_NUMBER,
+                    to=to_number
+                )
+                logger.info(f"[notify] SMS sent to {to_number}: {message.sid}")
+            except Exception as e:
+                logger.error(f"[notify] Failed to send SMS to {to_number}: {e}")
+    except Exception as e:
+        logger.error(f"[notify] Twilio error: {e}")
 
 # --- Cookies / session ---
 def b64url(data: bytes) -> str:
@@ -288,6 +327,9 @@ async def post_message(drop_id: str,
             "blob_id": blob_id, "mime": mime, "img": (f"/blob/{blob_id}" if blob_id else None)
         }
     })
+    # Notify only when E posts a new message, debounce 60s to avoid spam
+    if (user or "").upper() == "E" and _should_notify("msg", drop_id, 60):
+        notify("E posted a new message")
     return {"ok": True, "id": msg_id, "seq": next_seq, "ts": ts}
 
 # --- Message edit/delete/react and image delete ---
@@ -524,6 +566,14 @@ async def ws_endpoint(ws: WebSocket):
             elif t == "game":
                 # passthrough game events for now
                 await hub.broadcast(drop, {"type": "game", "payload": payload})
+                # Notify when E starts a game, debounced
+                try:
+                    op = (payload or {}).get("op")
+                    who = (payload or {}).get("user") or user
+                    if op == "start" and (who or "").upper() == "E" and _should_notify("game", drop, 60):
+                        notify("E started a game")
+                except Exception:
+                    pass
             else:
                 # Unrecognized events are ignored
                 pass
