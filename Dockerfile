@@ -26,5 +26,5 @@ ENV HOST=0.0.0.0 \
 EXPOSE 443
 
 ENTRYPOINT ["/usr/bin/tini","--"]
-CMD ["/bin/sh","-c","uvicorn main:app --host 0.0.0.0 --port ${PORT} --proxy-headers"]
+CMD ["python","-u","/app/main.py"]
 

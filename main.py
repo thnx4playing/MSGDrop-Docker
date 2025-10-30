@@ -534,3 +534,31 @@ async def ws_endpoint(ws: WebSocket):
 app.mount("/msgdrop", StaticFiles(directory="html", html=True), name="msgdrop")
 
 
+
+if __name__ == "__main__":
+    import uvicorn
+    # SSL paths from environment
+    ssl_cert = os.environ.get("SSL_CERT_PATH")
+    ssl_key = os.environ.get("SSL_KEY_PATH")
+    port = int(os.environ.get("PORT", "443"))
+
+    try:
+        cert_exists = ssl_cert and Path(ssl_cert).exists()
+        key_exists = ssl_key and Path(ssl_key).exists()
+    except Exception:
+        cert_exists = key_exists = False
+
+    if cert_exists and key_exists:
+        logger.info(f"Starting with SSL on port {port}")
+        uvicorn.run(
+            app,
+            host="0.0.0.0",
+            port=port,
+            ssl_certfile=ssl_cert,
+            ssl_keyfile=ssl_key,
+            proxy_headers=True,
+        )
+    else:
+        logger.info(f"Starting without SSL on port {port}")
+        uvicorn.run(app, host="0.0.0.0", port=port, proxy_headers=True)
+
