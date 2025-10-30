@@ -608,6 +608,10 @@ async def ws_endpoint(ws: WebSocket):
 
 # --- Static UI: serve /msgdrop
 app.mount("/msgdrop", StaticFiles(directory="html", html=True), name="msgdrop")
+# Also serve common asset roots for absolute paths the UI may use
+app.mount("/images", StaticFiles(directory="html/images"), name="images")
+app.mount("/css", StaticFiles(directory="html/css"), name="css")
+app.mount("/js", StaticFiles(directory="html/js"), name="js")
 
 
 @app.get("/")
