@@ -53,16 +53,30 @@ engine: Engine = create_engine(f"sqlite:///{DB_PATH}", future=True)
 BLOB_DIR.mkdir(parents=True, exist_ok=True)
 
 def init_db():
+    # Create parent dir
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
     with engine.begin() as conn:
         conn.exec_driver_sql("""
         create table if not exists messages(
             id text primary key,
             drop_id text not null,
+            seq integer not null,
             ts integer not null,
+            created_at integer not null,
+            updated_at integer not null,
             user text,
+            client_id text,
+            message_type text default 'text',
             text text,
             blob_id text,
-            mime text
+            mime text,
+            reactions text default '{}',
+            gif_url text,
+            gif_preview text,
+            gif_width integer default 0,
+            gif_height integer default 0,
+            image_url text,
+            image_thumb text
         );
         """)
         conn.exec_driver_sql("""
@@ -101,20 +115,28 @@ def issue_cookies() -> List[str]:
     ui_cookie = "; ".join(ui_parts)
     return [sess_cookie, ui_cookie]
 
+def _verify_token(token: str) -> bool:
+    import base64
+    try:
+        raw = token + "==="
+        blob = base64.urlsafe_b64decode(raw)
+        dot = blob.find(b".")
+        if dot <= 0:
+            return False
+        payload, mac = blob[:dot], blob[dot+1:]
+        if not hmac.compare_digest(sign(payload), mac):
+            return False
+        data = json.loads(payload.decode("utf-8"))
+        if int(time.time()) > int(data.get("exp", 0)):
+            return False
+        return True
+    except Exception:
+        return False
+
 def require_session(req: Request):
     c = req.cookies.get(SESSION_COOKIE)
     if not c: raise HTTPException(401, "no session")
-    import base64
-    try:
-        raw = c + "==="  # restore padding best-effort
-        blob = base64.urlsafe_b64decode(raw)
-        dot = blob.find(b".")
-        if dot <= 0: raise ValueError("bad token")
-        payload, mac = blob[:dot], blob[dot+1:]
-        if not hmac.compare_digest(sign(payload), mac): raise ValueError("bad sig")
-        data = json.loads(payload.decode("utf-8"))
-        if int(time.time()) > int(data.get("exp", 0)): raise ValueError("expired")
-    except Exception:
+    if not _verify_token(c):
         raise HTTPException(401, "bad session")
 
 # --- Health ---
@@ -164,13 +186,13 @@ def unlock(body: UnlockBody, req: Request):
 
 # --- Chat APIs ---
 @app.get("/api/chat/{drop_id}")
-def list_messages(drop_id: str, limit: int = 10, before: Optional[int] = None, req: Request = None):
+def list_messages(drop_id: str, limit: int = 200, before: Optional[int] = None, req: Request = None):
     require_session(req)
     sql = "select * from messages where drop_id=:d"
     params = {"d": drop_id}
     if before:
         sql += " and ts < :b"; params["b"] = before
-    sql += " order by ts desc limit :n"; params["n"] = max(1, min(200, limit))
+    sql += " order by seq desc limit :n"; params["n"] = max(1, min(500, limit))
     with engine.begin() as conn:
         rows = conn.execute(text(sql), params).mappings().all()
     rows = list(reversed(rows))
@@ -212,19 +234,102 @@ async def post_message(drop_id: str,
         mime = file.content_type or mimetypes.guess_type(dest.name)[0] or "application/octet-stream"
 
     with engine.begin() as conn:
+        # allocate next seq per drop
+        row = conn.execute(text("select coalesce(max(seq),0)+1 as next from messages where drop_id=:d"), {"d": drop_id}).mappings().first()
+        next_seq = int(row["next"]) if row else 1
+        now_ms = ts
         conn.execute(text("""
-          insert into messages(id,drop_id,ts,user,text,blob_id,mime)
-          values(:id,:d,:ts,:u,:tx,:b,:m)
-        """), {"id": msg_id, "d": drop_id, "ts": ts, "u": user, "tx": text_, "b": blob_id, "m": mime})
+          insert into messages(id,drop_id,seq,ts,created_at,updated_at,user,client_id,message_type,text,blob_id,mime,reactions)
+          values(:id,:d,:seq,:ts,:ca,:ua,:u,:cid,:mt,:tx,:b,:m,:rx)
+        """), {"id": msg_id, "d": drop_id, "seq": next_seq, "ts": ts, "ca": now_ms, "ua": now_ms,
+                "u": user, "cid": None, "mt": ("image" if blob_id else "text"), "tx": text_, "b": blob_id, "m": mime, "rx": "{}"})
 
     await hub.broadcast(drop_id, {
         "type": "update",
         "message": {
-            "id": msg_id, "drop_id": drop_id, "ts": ts, "user": user, "text": text_,
+            "id": msg_id, "drop_id": drop_id, "seq": next_seq, "ts": ts, "user": user, "text": text_,
             "blob_id": blob_id, "mime": mime, "img": (f"/blob/{blob_id}" if blob_id else None)
         }
     })
-    return {"ok": True, "id": msg_id, "ts": ts}
+    return {"ok": True, "id": msg_id, "seq": next_seq, "ts": ts}
+
+# --- Message edit/delete/react and image delete ---
+from fastapi import Body
+
+@app.patch("/api/chat/{drop_id}")
+async def edit_message(drop_id: str, body: Dict[str, Any] = Body(...), req: Request = None):
+    require_session(req)
+    seq = body.get("seq")
+    text_val = body.get("text")
+    if seq is None or text_val is None:
+        raise HTTPException(400, "seq and text required")
+    now_ms = int(time.time() * 1000)
+    with engine.begin() as conn:
+        conn.execute(text("update messages set text=:t, updated_at=:u where drop_id=:d and seq=:s"),
+                     {"t": text_val, "u": now_ms, "d": drop_id, "s": seq})
+    await hub.broadcast(drop_id, {"type": "update"})
+    return {"ok": True}
+
+@app.delete("/api/chat/{drop_id}")
+async def delete_message(drop_id: str, body: Dict[str, Any] = Body(...), req: Request = None):
+    require_session(req)
+    seq = body.get("seq")
+    if seq is None:
+        raise HTTPException(400, "seq required")
+    # Try to remove blob if tied to this message
+    with engine.begin() as conn:
+        row = conn.execute(text("select blob_id from messages where drop_id=:d and seq=:s"),
+                           {"d": drop_id, "s": seq}).mappings().first()
+        if row and row.get("blob_id"):
+            try:
+                (BLOB_DIR / row["blob_id"]).unlink(missing_ok=True)
+            except Exception:
+                pass
+        conn.execute(text("delete from messages where drop_id=:d and seq=:s"), {"d": drop_id, "s": seq})
+    await hub.broadcast(drop_id, {"type": "update"})
+    return {"ok": True}
+
+@app.post("/api/chat/{drop_id}/react")
+async def react_message(drop_id: str, body: Dict[str, Any] = Body(...), req: Request = None):
+    require_session(req)
+    seq = body.get("seq")
+    emoji = body.get("emoji")
+    op = (body.get("op") or "add").lower()
+    if seq is None or not emoji:
+        raise HTTPException(400, "seq and emoji required")
+    with engine.begin() as conn:
+        row = conn.execute(text("select reactions from messages where drop_id=:d and seq=:s"),
+                           {"d": drop_id, "s": seq}).mappings().first()
+        if not row:
+            raise HTTPException(404, "message not found")
+        try:
+            rx = json.loads(row["reactions"] or "{}")
+        except Exception:
+            rx = {}
+        cur = int(rx.get(emoji, 0))
+        if op == "add":
+            rx[emoji] = cur + 1
+        elif op == "remove":
+            rx[emoji] = max(0, cur - 1)
+        else:
+            raise HTTPException(400, "op must be add/remove")
+        conn.execute(text("update messages set reactions=:r where drop_id=:d and seq=:s"),
+                     {"r": json.dumps(rx, separators=(",", ":")), "d": drop_id, "s": seq})
+    await hub.broadcast(drop_id, {"type": "update"})
+    return {"ok": True}
+
+@app.delete("/api/chat/{drop_id}/images/{image_id}")
+async def delete_image(drop_id: str, image_id: str, req: Request = None):
+    require_session(req)
+    # Delete any messages that reference this blob in this drop
+    with engine.begin() as conn:
+        conn.execute(text("delete from messages where drop_id=:d and blob_id=:b"), {"d": drop_id, "b": image_id})
+    try:
+        (BLOB_DIR / image_id).unlink(missing_ok=True)
+    except Exception:
+        pass
+    await hub.broadcast(drop_id, {"type": "update"})
+    return {"ok": True}
 
 # --- Streaks (EST midnight window; both users must post each day) ---
 from zoneinfo import ZoneInfo
@@ -346,25 +451,40 @@ hub = Hub()
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
     params = dict(ws.query_params)
-    drop = params.get("drop") or "default"
-    # optional strictness
+    # verify session token from query
+    session_token = params.get("sessionToken") or params.get("sess")
+    if not session_token or not _verify_token(session_token):
+        await ws.close(code=1008)
+        return
+
+    drop = params.get("drop") or params.get("dropId") or "default"
+    # optional strictness via edge token
     edge = params.get("edge")
     if EDGE_AUTH_TOKEN and edge != EDGE_AUTH_TOKEN:
         await ws.close(code=4401)
         return
 
-    await hub.join(drop, ws)
+    user = params.get("user") or "anon"
+    await hub.join(drop, ws, user)
     try:
         while True:
             msg = await ws.receive_json()
-            t = msg.get("type")
+            # Support both type/action styles
+            t = msg.get("type") or msg.get("action")
+            payload = msg.get("payload") or msg
             if t == "typing":
-                await hub.broadcast(drop, msg)
+                await hub.broadcast(drop, {"type": "typing", "payload": payload})
             elif t == "ping":
                 await ws.send_json({"type": "pong", "ts": int(time.time()*1000)})
             elif t == "notify":
                 notify(f"{msg}")
+            elif t == "presence" or t == "presence_request":
+                await hub.broadcast(drop, {"type": t, "payload": payload, "online": hub._online(drop)})
+            elif t == "game":
+                # passthrough game events for now
+                await hub.broadcast(drop, {"type": "game", "payload": payload})
             else:
+                # Unrecognized events are ignored
                 pass
     except WebSocketDisconnect:
         await hub.leave(drop, ws)
