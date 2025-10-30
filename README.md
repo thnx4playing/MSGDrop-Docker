@@ -6,20 +6,26 @@ Quick start
 
    docker build -t msgdrop-mono .
 
-2) Run with persistent data and HTTPS port (5‑minute session, PIN 1234)
+2) Run on Ubuntu (persistent data + HTTPS port)
 
-   docker run --rm -p 443:443 \
-     -e PUBLIC_BASE_URL=https://localhost \
-     -e DOMAIN=localhost \
+   sudo mkdir -p /srv/msgdrop-data
+   sudo chown 1000:1000 /srv/msgdrop-data || true
+
+   docker run -d --name msgdrop \
+     --restart unless-stopped \
+     -p 443:443 \
+     -e PUBLIC_BASE_URL=https://your.domain \
+     -e DOMAIN=your.domain \
      -e SESSION_TTL_SECONDS=300 \
      -e UNLOCK_CODE=1234 \
      -e PORT=443 \
-     -v C:/MSGDropData:/data \
+     -v /srv/msgdrop-data:/data \
      msgdrop-mono
 
    Notes:
-   - Map a dedicated host folder to /data (e.g., C:/MSGDropData) to persist DB, blobs, and keys across upgrades.
-   - If 443 is already in use, change host mapping (e.g., -p 8443:443) or set PORT to another value and map accordingly.
+   - Persist data by binding /srv/msgdrop-data to /data (DB, blobs, signing key).
+   - For real TLS, put Nginx/Traefik in front with a cert and proxy pass to the container on port 443 (or run the app on an internal port and terminate TLS at the proxy). Example Nginx shown below.
+   - If you prefer a different host port, map e.g. -p 8443:443 and keep PORT=443.
 
 3) Open
 
@@ -53,6 +59,25 @@ Config (env vars)
 - MSGDROP_SECRET_JSON: optional JSON with {"edgeAuthToken":"...","notify_numbers":[...]}
 - SESSION_SIGN_KEY: optional fixed key; otherwise generated and saved to /data/.sesskey
 - DATA_DIR: path inside container where all persistent data is stored (default: /data)
+
+Reverse proxy (Nginx) on Ubuntu
+
+   server {
+     listen 443 ssl http2;
+     server_name your.domain;
+     ssl_certificate /etc/letsencrypt/live/your.domain/fullchain.pem;
+     ssl_certificate_key /etc/letsencrypt/live/your.domain/privkey.pem;
+
+     location / {
+       proxy_pass http://127.0.0.1:443; # container published on 443
+       proxy_set_header Host $host;
+       proxy_set_header X-Forwarded-Proto $scheme;
+       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+       proxy_set_header X-Forwarded-Host $host;
+     }
+   }
+
+Alternatively, publish the container on a non-privileged port (e.g., -p 8080:443) and set proxy_pass to http://127.0.0.1:8080.
 
 Replace the UI
 
