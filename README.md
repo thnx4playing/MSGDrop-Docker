@@ -6,17 +6,20 @@ Quick start
 
    docker build -t msgdrop-mono .
 
-2) Run (5‑minute session, PIN 1234)
+2) Run with persistent data and HTTPS port (5‑minute session, PIN 1234)
 
-   docker run --rm -p 8080:8080 \
-     -e PUBLIC_BASE_URL=http://localhost:8080 \
+   docker run --rm -p 443:443 \
+     -e PUBLIC_BASE_URL=https://localhost \
      -e DOMAIN=localhost \
      -e SESSION_TTL_SECONDS=300 \
      -e UNLOCK_CODE=1234 \
-     -v %cd%/data:/data \
+     -e PORT=443 \
+     -v C:/MSGDropData:/data \
      msgdrop-mono
 
-   On PowerShell, use ${PWD}\data instead of %cd% if preferred.
+   Notes:
+   - Map a dedicated host folder to /data (e.g., C:/MSGDropData) to persist DB, blobs, and keys across upgrades.
+   - If 443 is already in use, change host mapping (e.g., -p 8443:443) or set PORT to another value and map accordingly.
 
 3) Open
 
@@ -31,6 +34,7 @@ What’s included
   - /ws WebSocket with broadcast, typing, and presence (online count)
 - Local SQLite (stored in /data/messages.db)
 - Blob storage on local filesystem (/data/blob)
+- Session signing key persisted under /data/.sesskey
 - Static UI placeholder under /msgdrop (replace with your SPA build)
 
 Security & offline
@@ -48,6 +52,7 @@ Config (env vars)
 - UNLOCK_CODE or UNLOCK_CODE_HASH: choose one
 - MSGDROP_SECRET_JSON: optional JSON with {"edgeAuthToken":"...","notify_numbers":[...]}
 - SESSION_SIGN_KEY: optional fixed key; otherwise generated and saved to /data/.sesskey
+- DATA_DIR: path inside container where all persistent data is stored (default: /data)
 
 Replace the UI
 

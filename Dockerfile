@@ -22,9 +22,9 @@ RUN mkdir -p /data/blob
 VOLUME ["/data"]
 
 ENV HOST=0.0.0.0 \
-    PORT=8080
-EXPOSE 8080
+    PORT=443
+EXPOSE 443
 
 ENTRYPOINT ["/usr/bin/tini","--"]
-CMD ["uvicorn","main:app","--host","0.0.0.0","--port","8080","--proxy-headers"]
+CMD ["/bin/sh","-c","uvicorn main:app --host 0.0.0.0 --port ${PORT} --proxy-headers"]
 
