@@ -1,0 +1,50 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MSGDrop Mono</title>
+    <style>
+      body { font-family: system-ui, Arial, sans-serif; margin: 24px; }
+      #log { height: 200px; overflow: auto; background: #f6f6f6; padding: 8px; }
+      input, button { padding: 8px; }
+    </style>
+  </head>
+  <body>
+    <h1>MSGDrop Mono</h1>
+    <p>Quick smoke-test UI (placeholder). Your SPA can be served here.</p>
+    <section>
+      <h3>Unlock</h3>
+      <input id="pin" placeholder="4-digit PIN" maxlength="4" />
+      <button id="unlock">Unlock</button>
+      <div id="unlockResult"></div>
+    </section>
+    <section>
+      <h3>WebSocket</h3>
+      <input id="drop" value="default" />
+      <button id="connect">Connect</button>
+      <button id="typing">Typing</button>
+      <div id="log"></div>
+    </section>
+    <script>
+      const log = (m) => { const el = document.getElementById('log'); el.innerText += m + "\n"; el.scrollTop = el.scrollHeight; };
+      document.getElementById('unlock').onclick = async () => {
+        const code = document.getElementById('pin').value;
+        const r = await fetch('/api/unlock', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code }) });
+        document.getElementById('unlockResult').innerText = r.ok ? 'Unlocked' : 'Failed';
+      };
+      let ws;
+      document.getElementById('connect').onclick = () => {
+        const drop = document.getElementById('drop').value || 'default';
+        ws = new WebSocket(`ws://${location.host}/ws?drop=${encodeURIComponent(drop)}`);
+        ws.onopen = () => log('ws: open');
+        ws.onmessage = (ev) => log('ws: ' + ev.data);
+        ws.onclose = () => log('ws: close');
+      };
+      document.getElementById('typing').onclick = () => {
+        if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'typing' }));
+      };
+    </script>
+  </body>
+  </html>
+

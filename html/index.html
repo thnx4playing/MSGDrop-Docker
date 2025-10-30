@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<meta name="format-detection" content="telephone=no"/>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+<meta http-equiv="Pragma" content="no-cache"/>
+<meta http-equiv="Expires" content="0"/>
+<title>Bug Fix Status</title>
+
+<script>
+(function(){
+  try {
+    var saved = sessionStorage.getItem('theme');
+    var theme = saved || 'dark';
+    document.documentElement.setAttribute('data-theme', theme);
+  } catch(e){}
+})();
+</script>
+
+<link rel="stylesheet" href="/msgdrop/css/styles.css?v=20241032">
+</head>
+<body>
+<div id="appRoot" aria-live="polite">
+  <div class="card">
+    
+    <!-- Header -->
+    <div class="header">
+      <div class="header-left">
+        <div class="presence-indicators">
+          <div id="presenceE" class="presence-badge" data-role="E">
+            <span class="presence-dot"></span>
+            <span class="presence-label">E</span>
+          </div>
+          <div id="presenceM" class="presence-badge" data-role="M">
+            <span class="presence-dot"></span>
+            <span class="presence-label">M</span>
+          </div>
+        </div>
+        <div id="streakDisplay" class="streak-display">
+          <span class="streak-flame">🔥</span>
+          <span id="streakCount" class="streak-count">0</span>
+        </div>
+      </div>
+      <div class="header-center">
+      </div>
+      <div class="header-right">
+        <button id="themeToggle" class="themeBtn" type="button" aria-label="Toggle theme" title="Toggle theme">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M12 4.5V3m5.657 3.343L18.72 5.406M19.5 12H21m-3.343 5.657l1.937 1.937M12 21v-1.5M5.343 18.657 3.406 20.594M3 12h1.5M5.343 5.343 3.406 3.406" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            <circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" stroke-width="1.8"/>
+          </svg>
+        </button>
+        <div id="liveStatus" class="connection-indicator" title="Connection status"></div>
+      </div>
+    </div>
+
+    <!-- Chat Messages -->
+    <div id="chatContainer" class="chat-container">
+      <!-- Typing indicator positioned within chat flow -->
+      <div id="typingIndicator" class="typing-indicator-wrapper">
+        <div class="typing-bubble">
+          <div class="typing-dot"></div>
+          <div class="typing-dot"></div>
+          <div class="typing-dot"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Compose Area -->
+    <div id="composeSection" class="compose-section">
+      <div id="editHeader" class="edit-header">
+        <span class="edit-header-text">Editing message</span>
+        <button id="cancelEditBtn" class="cancel-edit-btn" type="button">Cancel</button>
+      </div>
+      
+      <div class="compose-row">
+        <textarea id="reply" class="compose-textarea" placeholder="Message" rows="1"></textarea>
+        <div id="composeTimer" class="compose-timer">298</div>
+        <button id="postBtn" class="send-btn" type="button" aria-label="Send" title="Send">
+          <img alt="" src="https://www.wikistories.org/msgdrop/images/reply.png?v=1">
+        </button>
+      </div>
+      
+      <div class="toolbar">
+        <button id="userBtn" class="tool-btn" type="button" aria-label="Select Role" title="Select Role">
+          <img alt="" src="https://www.wikistories.org/msgdrop/images/user.png?v=1">
+        </button>	  
+        <button id="emojiBtn" class="tool-btn" type="button" aria-label="Emoji" title="Emoji">
+          <img alt="" src="https://www.wikistories.org/msgdrop/images/emoji.png?v=1">
+        </button>
+        <button id="uploadBtn" class="tool-btn" type="button" aria-label="Upload Image" title="Upload Image">
+          <img alt="" src="https://www.wikistories.org/msgdrop/images/upload.png?v=1">
+        </button>
+        <button id="libraryBtn" class="tool-btn" type="button" aria-label="Image Library" title="Image Library">
+          <img alt="" src="https://www.wikistories.org/msgdrop/images/attachments.png?v=1">
+          <span id="imageCountBadge" class="image-count-badge"></span>
+        </button>
+        <button id="gamesBtn" class="tool-btn" type="button" aria-label="Games" title="Play Tic-Tac-Toe">
+			<img alt="" src="https://www.wikistories.org/msgdrop/images/games.png?v=1">
+			<span id="activeGamesBadge" class="active-games-badge" style="display: none;"></span>
+		</button>
+		<button id="gif-button" class="tool-btn" type="button" aria-label="Send GIF" title="Send GIF">
+			<img alt="" src="https://www.wikistories.org/msgdrop/images/giphy.png?v=1">
+		</button>
+      </div>
+    </div>
+
+    <!-- Tic-Tac-Toe Game Modal - UPDATED: Removed header banner, added red circle close badge -->
+    <div id="gameModal" class="game-modal">
+      <div class="game-panel">
+        <button id="gameCloseBtn" class="modal-close-badge" type="button" aria-label="Close">&times;</button>
+        
+        <div id="gameStatus" class="game-status">Loading...</div>
+        
+        <div id="gameBoard" class="game-board">
+          <button class="game-cell" data-row="0" data-col="0" type="button"></button>
+          <button class="game-cell" data-row="0" data-col="1" type="button"></button>
+          <button class="game-cell" data-row="0" data-col="2" type="button"></button>
+          <button class="game-cell" data-row="1" data-col="0" type="button"></button>
+          <button class="game-cell" data-row="1" data-col="1" type="button"></button>
+          <button class="game-cell" data-row="1" data-col="2" type="button"></button>
+          <button class="game-cell" data-row="2" data-col="0" type="button"></button>
+          <button class="game-cell" data-row="2" data-col="1" type="button"></button>
+          <button class="game-cell" data-row="2" data-col="2" type="button"></button>
+        </div>
+        
+        <div class="game-actions">
+          <button id="gameEndBtn" class="game-btn secondary" type="button">End Game</button>
+          <button id="gameCloseBtn2" class="game-btn" type="button">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Thumbnails Section (popup) - UPDATED: Removed header banner, added red circle close badge -->
+    <div id="thumbSection" class="thumb-section">
+      <button id="thumbCloseBtn" class="modal-close-badge" type="button" aria-label="Close">&times;</button>
+      <div id="thumbStrip" class="thumb-container" aria-label="Images">
+        <div id="thumbEmpty" class="thumb-empty-state">
+          <span style="font-size:48px;opacity:0.3">📷</span>
+          <span>No images yet</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Thumbnail overlay backdrop -->
+<div id="thumbOverlay" class="thumb-overlay"></div>
+
+<!-- User Role Selector Modal -->
+<div id="userRoleModal" class="user-role-modal">
+  <div class="user-role-panel">
+    <h3>Who are you?</h3>
+    <p>Select your role to personalize the chat</p>
+    <div class="user-role-options">
+      <button id="roleE" class="user-role-option" type="button" data-role="E">
+        <div class="emoji">👧</div>
+      </button>
+      <button id="roleM" class="user-role-option" type="button" data-role="M">
+        <div class="emoji">👦</div>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Games Menu Popover - UPDATED: Close badge inline with title -->
+<div id="gamesPopover" class="games-popover">
+  <div class="games-popover-header">
+    <h3 class="games-section-title">Start New Game</h3>
+    <button id="gamesPopoverClose" class="modal-close-badge-inline" type="button" aria-label="Close">&times;</button>
+  </div>
+  
+  <div class="games-list" id="gamesList">
+    <button type="button" class="game-item" id="ticTacToeBtn">
+      <span class="game-item-icon">⭕</span>
+      <span class="game-item-name">Tic-Tac-Toe</span>
+    </button>
+  </div>
+  
+  <h3 class="games-section-title" id="activeGamesTitle" style="display:none;">Active Games</h3>
+  <div class="games-list" id="activeGamesList"></div>
+</div>
+
+<!-- Reaction Picker -->
+<div id="reactPicker" class="react-picker">
+  <div class="react-picker-grid"></div>
+</div>
+
+<!-- Emoji Popover -->
+<div id="emojiPopover" class="emoji-popover">
+  <div id="emojiGrid" class="emoji-grid"></div>
+</div>
+
+<!-- Lightbox -->
+<div id="lightbox" class="lightbox" role="dialog" aria-modal="true">
+  <img id="lightboxImg" alt="" />
+  <button id="lbCloseCenter" class="lightbox-close" aria-label="Close">
+    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+      <path d="M6 6 L18 18 M18 6 L6 18" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+  </button>
+  <div id="lbLoading" class="lightbox-loading" aria-live="polite">
+    <div class="spinner" role="status" aria-label="Loading"></div>
+  </div>
+</div>
+
+<!-- Hidden file input -->
+<input id="fileInput" type="file" accept="image/*"/>
+
+<!-- Scripts with cache busting -->
+<script src="/msgdrop/js/config.js?v=20241032"></script>
+<script src="/msgdrop/js/storage.js?v=20241032"></script>
+<script src="/msgdrop/js/cookie-checker.js?v=20241032"></script>
+<script src="/msgdrop/js/api.js?v=20241032"></script>
+<script src="/msgdrop/js/websocket.js?v=20241032"></script>
+<script src="/msgdrop/js/ui.js?v=20241032"></script>
+<script src="/msgdrop/js/messages.js?v=20241032"></script>
+<script src="/msgdrop/js/reactions.js?v=20241032"></script>
+<script src="/msgdrop/js/images.js?v=20241032"></script>
+<script src="/msgdrop/js/streak.js?v=20241032"></script>
+<script src="/msgdrop/js/game.js?v=20241032"></script>
+<script src="/msgdrop/js/giphy.js?v=20241032"></script>
+<script src="/msgdrop/js/app.js?v=20241032"></script>
+</body>
+</html>
