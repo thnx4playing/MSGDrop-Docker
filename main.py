@@ -282,15 +282,33 @@ def list_messages(drop_id: str, limit: int = 200, before: Optional[int] = None, 
     images = []
     for r in rows:
         o = dict(r)
+        # Transform DB fields (snake_case) to frontend format (camelCase)
+        msg = {
+            "message": o.get("text"),
+            "seq": o.get("seq"),
+            "createdAt": o.get("created_at"),
+            "updatedAt": o.get("updated_at"),
+            "user": o.get("user"),
+            "clientId": o.get("client_id"),
+            "messageType": o.get("message_type"),
+            "reactions": json.loads(o.get("reactions") or "{}"),
+            "gifUrl": o.get("gif_url"),
+            "gifPreview": o.get("gif_preview"),
+            "gifWidth": o.get("gif_width"),
+            "gifHeight": o.get("gif_height"),
+            "imageUrl": o.get("image_url"),
+            "imageThumb": o.get("image_thumb"),
+        }
         if o.get("blob_id"):
-            o["img"] = f"/blob/{o['blob_id']}"
+            msg["img"] = f"/blob/{o['blob_id']}"
             images.append({
-                "id": o["blob_id"],
+                "imageId": o["blob_id"],
                 "mime": o.get("mime"),
-                "url": o["img"],
-                "ts": o.get("ts")
+                "originalUrl": msg["img"],
+                "thumbUrl": msg["img"],
+                "uploadedAt": o.get("ts"),
             })
-        out.append(o)
+        out.append(msg)
     return {"dropId": drop_id, "version": int(max_seq or 0), "messages": out, "images": images}
 
 @app.post("/api/chat/{drop_id}")
