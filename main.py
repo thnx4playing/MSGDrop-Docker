@@ -192,7 +192,7 @@ def require_session(req: Request):
 from collections import defaultdict
 request_counts = defaultdict(list)
 
-def rate_limit(req: Request, max_requests: int = 100, window: int = 60):
+def rate_limit(req: Request, max_requests: int = 300, window: int = 60):
     client_ip = req.client.host if getattr(req, "client", None) else "unknown"
     now = int(time.time())
     lst = request_counts[client_ip]
