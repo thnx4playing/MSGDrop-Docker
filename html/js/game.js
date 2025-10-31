@@ -450,6 +450,15 @@ var Game = {
       }
     } else if(data.op === 'move'){
       // Move was made
+      console.log('[Game] ======= MOVE RECEIVED =======');
+      console.log('[Game] moveData:', data.moveData);
+      console.log('[Game] gameData:', data.gameData);
+      console.log('[Game] Current state:', {
+        currentTurn: this.state.currentTurn,
+        starter: this.state.starter,
+        myRole: Messages.myRole
+      });
+      
       if(data.moveData){
         var moveData = data.moveData;
         
@@ -457,11 +466,17 @@ var Game = {
         var mover = moveData.by || this.state.currentTurn;
         var marker = (mover === this.state.starter) ? 'X' : 'O';
         
+        // Get next turn from server or calculate it by swapping from the mover
         var nextTurn = data.gameData && data.gameData.currentTurn 
           ? data.gameData.currentTurn 
-          : (mover === 'E' ? 'M' : 'E');  // ✅ CORRECT - swap from mover
+          : (mover === 'E' ? 'M' : 'E');
         
-        console.log('[Game] Applying move - mover:', mover, 'marker:', marker, 'nextTurn:', nextTurn);
+        console.log('[Game] Calculated move:', {
+          mover: mover,
+          marker: marker,
+          nextTurn: nextTurn,
+          position: [moveData.r, moveData.c]
+        });
         
         this.applyMove({
           r: moveData.r,
