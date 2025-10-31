@@ -650,7 +650,8 @@ async def ws_endpoint(ws: WebSocket):
         await ws.close(code=4401)
         return
 
-    user = params.get("user") or "anon"
+    user = params.get("user") or params.get("role") or "anon"
+    logger.info(f"[WS] WebSocket connecting: user={user}, drop={drop}")
     await hub.join(drop, ws, user)
     try:
         while True:
