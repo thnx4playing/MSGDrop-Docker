@@ -371,13 +371,13 @@ var WebSocketManager = {
     // Update UI immediately
     this.updatePresence(user, state === 'active');
     
-    // Set timeout to mark as away after 45 seconds (not 60) of no heartbeat
+    // Set timeout to mark as away after 60 seconds (2x heartbeat interval) of no heartbeat
     // Only set timeout for 'active' state
     if(state === 'active'){
       var timeout = setTimeout(function(){
         this.updatePresence(user, false);
         this.presenceTimeouts.delete(user);
-      }.bind(this), 45000);
+      }.bind(this), 60000);  // 60 seconds (2x heartbeat interval for safer buffer)
       this.presenceTimeouts.set(user, timeout);
     }
   },

@@ -441,20 +441,16 @@ var App = {
   },
 
   // ✨ NEW: Send GIF message
-  sendGifMessage: async function(gifData){
-    if(!gifData || !gifData.fullUrl){
-      console.error('Invalid GIF data:', gifData);
-      return;
-    }
-    
+  sendGifMessage: function(gifData){
     console.log('Sending GIF:', gifData);
     
     // Try WebSocket first (faster, real-time)
     if(WebSocketManager.ws && WebSocketManager.ws.readyState === 1){
       var sent = WebSocketManager.sendGIF(gifData, this.myRole, this.myClientId);
       if(sent){
-        // GIF sent via WebSocket - response will come via onmessage handler
-        // Update streak (non-blocking)
+        console.log('GIF sent via WebSocket');
+        
+        // Check and update streak after posting (non-blocking)
         if(typeof Streak !== 'undefined'){
           Streak.checkAndUpdate(this.dropId);
         }
@@ -463,53 +459,42 @@ var App = {
     }
     
     // Fallback to HTTP POST if WebSocket unavailable
+    console.log('WebSocket not available, using HTTP fallback');
+    
     var payload = {
-      text: '[GIF: ' + (gifData.title || 'GIF') + ']',
-      prevVersion: Messages.currentVersion,
-      user: this.myRole,
-      clientId: this.myClientId,
-      // GIF-specific fields
       gifUrl: gifData.fullUrl,
       gifPreview: gifData.previewUrl,
       gifWidth: gifData.width,
       gifHeight: gifData.height,
-      messageType: 'gif'
+      title: gifData.title,
+      user: this.myRole
     };
     
-    try {
-      var res = await fetch(CONFIG.API_BASE_URL + '/chat/' + this.dropId, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify(payload)
-      });
-      
+    fetch(CONFIG.API_BASE_URL + '/chat/' + this.dropId, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(payload)
+    })
+    .then(function(res){
       if(!res.ok){
-        if(res.status === 409){
-          // Conflict - refresh and retry
-          var data = await API.fetchDrop(this.dropId);
-          Messages.applyDrop(data);
-          alert('Chat was updated. Please try sending the GIF again.');
-        } else {
-          throw new Error('HTTP ' + res.status);
-        }
-        return;
+        throw new Error('HTTP ' + res.status);
       }
-      
-      var data = await res.json();
+      return res.json();
+    })
+    .then(function(data){
       Messages.applyDrop(data);
-      
-      console.log('GIF message sent successfully');
+      console.log('GIF message sent successfully via HTTP');
       
       // Update streak (non-blocking)
       if(typeof Streak !== 'undefined'){
         Streak.checkAndUpdate(this.dropId);
       }
-      
-    } catch(e){
+    }.bind(this))
+    .catch(function(e){
       console.error('Failed to send GIF:', e);
       alert('Failed to send GIF. Please try again.');
-    }
+    });
   },
 
   postMessage: async function(){

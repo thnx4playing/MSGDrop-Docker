@@ -561,20 +561,25 @@ class Hub:
         self.rooms.setdefault(drop_id, {})[ws] = user
         
         # Send current presence state to the NEW connection only
-        existing_users = set(self.rooms.get(drop_id, {}).values())
-        for existing_user in existing_users:
-            if existing_user != user:
-                await ws.send_json({
-                    "type": "presence",
-                    "data": {"user": existing_user, "state": "active", "ts": int(time.time() * 1000)},
-                    "online": len(existing_users)
-                })
+        # Tell them who's already online (excluding themselves)
+        existing_users = {}
+        for conn, u in self.rooms.get(drop_id, {}).items():
+            if conn != ws and u != user:  # Don't send their own presence
+                existing_users[u] = True
         
-        # Then broadcast this user's join to others (not self)
+        # Send initial presence of existing users to the new connection
+        for existing_user in existing_users.keys():
+            await ws.send_json({
+                "type": "presence",
+                "data": {"user": existing_user, "state": "active", "ts": int(time.time() * 1000)},
+                "online": len(self.rooms.get(drop_id, {}))
+            })
+        
+        # Then broadcast this user's join to OTHERS (not self)
         await self.broadcast_to_others(drop_id, ws, {
             "type": "presence",
             "data": {"user": user, "state": "active", "ts": int(time.time() * 1000)},
-            "online": len(existing_users)
+            "online": len(self.rooms.get(drop_id, {}))
         })
 
     async def leave(self, drop_id: str, ws: WebSocket):
@@ -627,7 +632,9 @@ async def ws_endpoint(ws: WebSocket):
     params = dict(ws.query_params)
     # verify session token from query
     session_token = params.get("sessionToken") or params.get("sess")
+    logger.info(f"[WS] Session token received: {session_token[:20] if session_token else 'None'}...")
     if not session_token or not _verify_token(session_token):
+        logger.warning(f"[WS] Invalid session token, closing connection")
         await ws.close(code=1008)
         return
 
@@ -693,15 +700,52 @@ async def ws_endpoint(ws: WebSocket):
                         "mt": "text", "tx": text_val, "rx": "{}"
                     })
                 
-                # Broadcast update to all connections
+                # Build the drop payload manually instead of calling list_messages()
+                # (list_messages requires req parameter for session validation)
+                with engine.begin() as conn:
+                    rows = conn.execute(text("select * from messages where drop_id=:d order by seq"), {"d": drop}).mappings().all()
+                
+                out = []
+                images = []
+                for r in rows:
+                    o = dict(r)
+                    msg = {
+                        "message": o.get("text"),
+                        "seq": o.get("seq"),
+                        "createdAt": o.get("created_at"),
+                        "updatedAt": o.get("updated_at"),
+                        "user": o.get("user"),
+                        "clientId": o.get("client_id"),
+                        "messageType": o.get("message_type"),
+                        "reactions": json.loads(o.get("reactions") or "{}"),
+                        "gifUrl": o.get("gif_url"),
+                        "gifPreview": o.get("gif_preview"),
+                        "gifWidth": o.get("gif_width"),
+                        "gifHeight": o.get("gif_height"),
+                        "imageUrl": o.get("image_url"),
+                        "imageThumb": o.get("image_thumb"),
+                    }
+                    if o.get("blob_id"):
+                        msg["img"] = f"/blob/{o['blob_id']}"
+                        images.append({
+                            "imageId": o["blob_id"],
+                            "mime": o.get("mime"),
+                            "originalUrl": msg["img"],
+                            "thumbUrl": msg["img"],
+                            "uploadedAt": o.get("ts"),
+                        })
+                    out.append(msg)
+                
+                full_drop = {"dropId": drop, "version": int(next_seq), "messages": out, "images": images}
+                
+                # Broadcast update to all connections (including sender)
                 await hub.broadcast(drop, {"type": "update"})
                 
                 # Notify if E posts, debounced
                 if (msg_user or "").upper() == "E" and _should_notify("msg", drop, 60):
                     notify("E posted a new message")
                 
-                # Return full drop payload to sender
-                full_drop = list_messages(drop, req=None)
+                # Also send full data to sender
                 await ws.send_json({"type": "update", "data": full_drop})
             elif t == "gif":
                 # GIF message via WebSocket
@@ -735,15 +779,52 @@ async def ws_endpoint(ws: WebSocket):
                         "gurl": gif_url, "gprev": gif_preview, "gw": gif_width, "gh": gif_height
                     })
                 
-                # Broadcast update to all connections
+                # Build the drop payload manually instead of calling list_messages()
+                # (list_messages requires req parameter for session validation)
+                with engine.begin() as conn:
+                    rows = conn.execute(text("select * from messages where drop_id=:d order by seq"), {"d": drop}).mappings().all()
+                
+                out = []
+                images = []
+                for r in rows:
+                    o = dict(r)
+                    msg = {
+                        "message": o.get("text"),
+                        "seq": o.get("seq"),
+                        "createdAt": o.get("created_at"),
+                        "updatedAt": o.get("updated_at"),
+                        "user": o.get("user"),
+                        "clientId": o.get("client_id"),
+                        "messageType": o.get("message_type"),
+                        "reactions": json.loads(o.get("reactions") or "{}"),
+                        "gifUrl": o.get("gif_url"),
+                        "gifPreview": o.get("gif_preview"),
+                        "gifWidth": o.get("gif_width"),
+                        "gifHeight": o.get("gif_height"),
+                        "imageUrl": o.get("image_url"),
+                        "imageThumb": o.get("image_thumb"),
+                    }
+                    if o.get("blob_id"):
+                        msg["img"] = f"/blob/{o['blob_id']}"
+                        images.append({
+                            "imageId": o["blob_id"],
+                            "mime": o.get("mime"),
+                            "originalUrl": msg["img"],
+                            "thumbUrl": msg["img"],
+                            "uploadedAt": o.get("ts"),
+                        })
+                    out.append(msg)
+                
+                full_drop = {"dropId": drop, "version": int(next_seq), "messages": out, "images": images}
+                
+                # Broadcast update to all connections (including sender)
                 await hub.broadcast(drop, {"type": "update"})
                 
                 # Notify if E posts, debounced
                 if (msg_user or "").upper() == "E" and _should_notify("gif", drop, 60):
                     notify("E sent a GIF")
                 
-                # Return full drop payload to sender
-                full_drop = list_messages(drop, req=None)
+                # Also send full data to sender
                 await ws.send_json({"type": "update", "data": full_drop})
             elif t == "game":
                 # passthrough game events for now
