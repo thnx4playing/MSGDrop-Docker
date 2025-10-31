@@ -507,36 +507,35 @@ var Game = {
         this.state.otherPlayerHasGameOpen = true;
         this.updateStatus();
       }
-    } else if(data.op === 'ended'){
+    } else if(data.op === 'ended' || data.op === 'game_ended'){
       // Game ended - check if WE ended it or the other player did
       var endedByMe = data.endedBy === Messages.myRole;
       
       console.log('[Game] Game ended', endedByMe ? '(by you)' : '(by other player)');
+      console.log('[Game] Result:', data.result);
       
-      // Only show alert if the OTHER player ended it
-      if(!endedByMe){
-        var result = data.result || {};
-        var message = 'The other player has ended the game';
+      // Always show alert with game result (for both players)
+      var result = data.result || {};
+      var message = 'Game ended';
+      
+      if(result.winner){
+        var winnerRole = result.winner === 'X' ? 
+          (this.state.starter === 'E' ? 'E' : 'M') : 
+          (this.state.starter === 'E' ? 'M' : 'E');
         
-        if(result.winner){
-          var winnerRole = result.winner === 'X' ? 
-            (this.state.starter === 'E' ? 'E' : 'M') : 
-            (this.state.starter === 'E' ? 'M' : 'E');
-          
-          if(winnerRole === Messages.myRole){
-            message = 'You won! Game ended.';
-          } else {
-            message = 'You lost! Game ended.';
-          }
-        } else if(result.reason === 'forfeit'){
-          message = 'The other player forfeited. Game ended.';
+        if(winnerRole === Messages.myRole){
+          message = 'You won!';
         } else {
-          message = 'Game ended in a draw.';
+          message = 'You lost!';
         }
-        
-        // Show alert with game result
-        alert(message);
+      } else if(result.reason === 'forfeit'){
+        message = endedByMe ? 'You forfeited the game' : 'The other player forfeited';
+      } else {
+        message = "It's a draw!";
       }
+      
+      // Show alert with game result
+      alert(message);
       
       this.currentGameId = null;
       UI.hideGameModal();
