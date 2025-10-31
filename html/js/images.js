@@ -91,23 +91,57 @@ var Images = {
 
   delete: async function(imageId){
     var dropId = encodeURIComponent(App.dropId);
-    try{
-      var res = await API.deleteImage(dropId, imageId);
-      if(!res.ok){ alert('Delete failed: '+res.status); return; }
-      var data = await res.json().catch(function(){ return null; });
-      if (data && Array.isArray(data.images)) {
-        this.list = data.images.map(function(im){
-          return {
-            id: im.imageId,
-            urls: { thumb: im.thumbUrl, original: im.originalUrl },
-            uploadedAt: im.uploadedAt
-          };
-        });
-        this.render();
-      } else {
-        setTimeout(function(){ this.fetch(dropId).catch(function(){}); }.bind(this), 250);
+    var maxRetries = 2;
+    var retryDelay = 500; // Start with 500ms
+    
+    for(var attempt = 0; attempt <= maxRetries; attempt++){
+      try{
+        var res = await API.deleteImage(dropId, imageId);
+        
+        if(res.ok){
+          // Success path
+          var data = await res.json().catch(function(){ return null; });
+          if (data && Array.isArray(data.images)) {
+            this.list = data.images.map(function(im){
+              return {
+                id: im.imageId,
+                urls: { thumb: im.thumbUrl, original: im.originalUrl },
+                uploadedAt: im.uploadedAt
+              };
+            });
+            this.render();
+          } else {
+            setTimeout(function(){ this.fetch(dropId).catch(function(){}); }.bind(this), 250);
+          }
+          return; // Exit on success
+        }
+        
+        // Server returned an error status
+        if(attempt < maxRetries){
+          console.log('[Images] Delete failed with status ' + res.status + ', retrying in ' + retryDelay + 'ms (attempt ' + (attempt + 1) + ')');
+          await new Promise(function(resolve){ setTimeout(resolve, retryDelay); });
+          retryDelay *= 2; // Exponential backoff
+          continue;
+        }
+        
+        // Final attempt failed
+        alert('Delete failed: ' + res.status);
+        return;
+        
+      }catch(e){
+        // Network error
+        if(attempt < maxRetries){
+          console.log('[Images] Network error deleting image, retrying in ' + retryDelay + 'ms (attempt ' + (attempt + 1) + ')');
+          await new Promise(function(resolve){ setTimeout(resolve, retryDelay); });
+          retryDelay *= 2; // Exponential backoff
+          continue;
+        }
+        
+        // Final attempt failed
+        alert('Delete failed (network error after ' + (maxRetries + 1) + ' attempts)');
+        return;
       }
-    }catch(e){ alert('Delete failed (network)'); }
+    }
   },
 
   upload: async function(file){

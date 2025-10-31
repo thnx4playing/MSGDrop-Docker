@@ -447,13 +447,27 @@ async def react_message(drop_id: str, body: Dict[str, Any] = Body(...), req: Req
 @app.delete("/api/chat/{drop_id}/images/{image_id}")
 async def delete_image(drop_id: str, image_id: str, req: Request = None):
     require_session(req)
+    logger.info(f"[delete_image] drop_id={drop_id}, image_id={image_id}")
+    
     # Delete any messages that reference this blob in this drop
     with engine.begin() as conn:
-        conn.execute(text("delete from messages where drop_id=:d and blob_id=:b"), {"d": drop_id, "b": image_id})
+        result = conn.execute(text("delete from messages where drop_id=:d and blob_id=:b"), 
+                             {"d": drop_id, "b": image_id})
+        deleted_count = result.rowcount
+        logger.info(f"[delete_image] Deleted {deleted_count} message(s) referencing blob {image_id}")
+    
+    # Delete the actual file
+    file_path = BLOB_DIR / image_id
     try:
-        (BLOB_DIR / image_id).unlink(missing_ok=True)
-    except Exception:
-        pass
+        if file_path.exists():
+            file_path.unlink()
+            logger.info(f"[delete_image] Successfully deleted file {image_id}")
+        else:
+            logger.warning(f"[delete_image] File {image_id} not found (may have been already deleted)")
+    except Exception as e:
+        logger.error(f"[delete_image] Failed to delete file {image_id}: {e}")
+        # Continue anyway - DB records are already deleted
+    
     await hub.broadcast(drop_id, {"type": "update"})
     return list_messages(drop_id, req=req)
 
