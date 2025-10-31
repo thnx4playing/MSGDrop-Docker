@@ -5,8 +5,6 @@ var Streak = {
   mPostedToday: false,
   ePostedToday: false,
   lastFetchTime: 0,
-  initialized: false,  // NEW: Track if we've loaded initial data
-  celebrateTimeout: null,  // NEW: Track animation timeout
 
   fetch: async function(dropId){
     try {
@@ -17,19 +15,14 @@ var Streak = {
         return;
       }
       
-      // Mark as initialized after first fetch
-      this.updateData(data, false);  // false = don't animate on initial load
-      this.initialized = true;
+      this.updateData(data);
       this.lastFetchTime = Date.now();
     } catch(e){
       console.error('[Streak] Fetch error:', e);
     }
   },
 
-  updateData: function(data, allowAnimation){
-    // allowAnimation defaults to true for WebSocket updates
-    if(allowAnimation === undefined) allowAnimation = true;
-    
+  updateData: function(data){
     var oldStreak = this.currentStreak;
     
     this.currentStreak = data.streak || 0;
@@ -39,9 +32,9 @@ var Streak = {
     
     this.render();
     
-    // Show celebration if streak increased AND we're initialized AND animation allowed
-    if(this.currentStreak > oldStreak && this.initialized && allowAnimation){
-      console.log('[Streak] Celebrating increase from', oldStreak, 'to', this.currentStreak);
+    // Show celebration ONLY if streak increased from non-zero
+    // (prevents animation on page load when going from 0 to existing streak)
+    if(this.currentStreak > oldStreak && oldStreak > 0){
       this.celebrate();
     }
   },
@@ -66,36 +59,30 @@ var Streak = {
 
   handleWebSocketUpdate: function(data){
     console.log('[Streak] WebSocket update:', data);
-    // WebSocket updates should animate (allowAnimation = true)
-    this.updateData(data, true);
+    this.updateData(data);
   },
 
   celebrate: function(){
     var display = document.getElementById('streakDisplay');
     if(!display) return;
     
-    // Clear any existing animation timeout
+    // Clear any existing timeout to prevent overlapping animations
     if(this.celebrateTimeout){
       clearTimeout(this.celebrateTimeout);
-      this.celebrateTimeout = null;
     }
     
-    // Remove any existing animation classes
-    display.classList.remove('streak-celebrate');
+    // Remove all animation classes
+    display.classList.remove('streak-celebrate', 'streak-complete', 'streak-bounce');
     
     // Force reflow to restart animation
     void display.offsetWidth;
     
     // Add celebration animation
     display.classList.add('streak-celebrate');
-    console.log('[Streak] Animation started');
     
-    // Remove after animation completes
-    var self = this;
+    // Remove after 1 second (animation duration)
     this.celebrateTimeout = setTimeout(function(){
       display.classList.remove('streak-celebrate');
-      console.log('[Streak] Animation ended');
-      self.celebrateTimeout = null;
     }, 1000);
   },
 
