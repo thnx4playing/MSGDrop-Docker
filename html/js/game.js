@@ -119,11 +119,14 @@ var Game = {
       return;
     }
     
-    // Send game move with correct format: action: "game"
     if(!WebSocketManager.ws || WebSocketManager.ws.readyState !== 1){
       console.error('[Game] WebSocket not connected');
       return;
     }
+    
+    // Calculate marker and next turn BEFORE sending
+    var marker = this.state.myMarker;
+    var nextTurn = (this.state.currentTurn === 'E') ? 'M' : 'E';
     
     console.log('[Game] Sending move to server...');
     try {
@@ -135,7 +138,9 @@ var Game = {
           moveData: { 
             r: r, 
             c: c,
-            by: Messages.myRole  // ✅ Include who made the move
+            by: Messages.myRole,
+            marker: marker,      // ← ADD THIS
+            nextTurn: nextTurn   // ← ADD THIS
           }
         }
       }));
@@ -414,20 +419,41 @@ var Game = {
       // Joined existing game
       this.currentGameId = data.gameId;
       var gameData = data.gameData || {};
-      this.init(gameData.seed, gameData.starter);
+      
+      // ✅ DON'T call init() - just restore the state directly
+      this.state.seed = gameData.seed;
+      this.state.starter = gameData.starter;
+      
+      // Restore board and turn (or use defaults if not in gameData yet)
+      this.state.board = gameData.board || [[null,null,null],[null,null,null],[null,null,null]];
+      this.state.currentTurn = gameData.currentTurn || gameData.starter;
+      this.state.gameOver = false;
+      this.state.winner = null;
+      
+      // Determine markers - starter always gets X
+      this.state.myMarker = (Messages.myRole === this.state.starter) ? 'X' : 'O';
+      this.state.theirMarker = (Messages.myRole === this.state.starter) ? 'O' : 'X';
+      
+      console.log('[Game] Restored game state - My role:', Messages.myRole, 'Starter:', this.state.starter, 'My marker:', this.state.myMarker);
+      console.log('[Game] Board state:', JSON.parse(JSON.stringify(this.state.board)));
+      console.log('[Game] Current turn:', this.state.currentTurn);
       
       // Mark that other player has game open (they're joining)
       this.state.otherPlayerHasGameOpen = true;
       
-      // Restore board state if provided
-      if(gameData.board){
-        this.state.board = gameData.board;
-        this.renderBoard();
+      // Check if game is over
+      var result = this.checkWinner();
+      if(result){
+        this.state.gameOver = true;
+        this.state.winner = result.winner;
+      } else if(this.isBoardFull()){
+        this.state.gameOver = true;
+        this.state.winner = null;
       }
-      if(gameData.currentTurn){
-        this.state.currentTurn = gameData.currentTurn;
-        this.updateStatus();
-      }
+      
+      // Render the restored state
+      this.renderBoard();
+      this.updateStatus();
       
       UI.showGameModal();
       console.log('[Game] Joined game:', this.currentGameId);
