@@ -585,15 +585,20 @@ class Hub:
     async def leave(self, drop_id: str, ws: WebSocket):
         # Get user before removal
         user_label = self.rooms.get(drop_id, {}).get(ws, "anon")
+        logger.info(f"[Hub.leave] User '{user_label}' disconnecting from drop '{drop_id}'")
+        
         try:
             del self.rooms.get(drop_id, {})[ws]
-            if not self.rooms.get(drop_id): self.rooms.pop(drop_id, None)
+            if not self.rooms.get(drop_id): 
+                self.rooms.pop(drop_id, None)
         except KeyError:
             pass
-        # Broadcast user's inactive state when they disconnect
+        
+        # Broadcast user's offline state
+        logger.info(f"[Hub.leave] Broadcasting offline state for user '{user_label}'")
         await self.broadcast(drop_id, {
             "type": "presence",
-            "data": {"user": user_label, "state": "inactive", "ts": int(time.time() * 1000)},
+            "data": {"user": user_label, "state": "offline", "ts": int(time.time() * 1000)},
             "online": self._online(drop_id)
         })
 

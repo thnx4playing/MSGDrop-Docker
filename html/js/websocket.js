@@ -357,6 +357,8 @@ var WebSocketManager = {
     var state = data.state;
     var ts = data.ts || Date.now();
     
+    console.log('[WS] Received presence:', user, state, 'My role:', this.userLabel);
+    
     if(!user) return;
     
     // Clear existing timeout when receiving new heartbeat
