@@ -640,6 +640,58 @@ class Hub:
 
 hub = Hub()
 
+# --- Game State Management ---
+class GameManager:
+    def __init__(self):
+        self.games: Dict[str, Dict[str, Any]] = {}  # gameId -> game state
+
+    def create_game(self, drop_id: str, game_type: str, game_data: Dict[str, Any]) -> str:
+        """Create a new game and return gameId"""
+        import uuid
+        game_id = f"game_{uuid.uuid4().hex[:12]}"
+        
+        self.games[game_id] = {
+            "gameId": game_id,
+            "dropId": drop_id,
+            "gameType": game_type,
+            "gameData": game_data,
+            "status": "active",
+            "created": int(time.time() * 1000),
+            "players": []
+        }
+        
+        logger.info(f"[Game] Created game {game_id} in drop {drop_id}")
+        return game_id
+
+    def get_game(self, game_id: str) -> Optional[Dict[str, Any]]:
+        """Get game state by ID"""
+        return self.games.get(game_id)
+
+    def update_game(self, game_id: str, updates: Dict[str, Any]):
+        """Update game state"""
+        if game_id in self.games:
+            self.games[game_id].update(updates)
+
+    def end_game(self, game_id: str):
+        """Mark game as ended"""
+        if game_id in self.games:
+            self.games[game_id]["status"] = "ended"
+
+    def get_active_games(self, drop_id: str) -> List[Dict[str, Any]]:
+        """Get all active games for a drop"""
+        active = []
+        for game_id, game in self.games.items():
+            if game.get("dropId") == drop_id and game.get("status") == "active":
+                active.append({
+                    "gameId": game_id,
+                    "gameType": game.get("gameType"),
+                    "created": game.get("created"),
+                    "gameData": game.get("gameData")
+                })
+        return active
+
+game_manager = GameManager()
+
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
     params = dict(ws.query_params)
@@ -844,16 +896,150 @@ async def ws_endpoint(ws: WebSocket):
                 # Also send full data to sender
                 await ws.send_json({"type": "update", "data": full_drop})
             elif t == "game":
-                # passthrough game events for now
-                await hub.broadcast(drop, {"type": "game", "payload": payload})
-                # Notify when E starts a game, debounced
-                try:
-                    op = (payload or {}).get("op")
-                    who = (payload or {}).get("user") or user
-                    if op == "start" and (who or "").upper() == "E" and _should_notify("game", drop, 60):
-                        notify("E started a game")
-                except Exception:
-                    pass
+                # Enhanced game event handling with state management
+                op = (payload or {}).get("op")
+                logger.info(f"[Game] Received op={op} from user={user}")
+                
+                if op == "start":
+                    # Create new game
+                    game_type = payload.get("gameType", "t3")
+                    game_data = payload.get("gameData", {})
+                    
+                    game_id = game_manager.create_game(drop, game_type, game_data)
+                    
+                    # Broadcast 'started' event to all players
+                    await hub.broadcast(drop, {
+                        "type": "game",
+                        "payload": {
+                            "op": "started",
+                            "gameId": game_id,
+                            "gameType": game_type,
+                            "gameData": game_data
+                        }
+                    })
+                    
+                    logger.info(f"[Game] Started game {game_id} with starter={game_data.get('starter')}")
+                    
+                    # Notify when E starts a game, debounced
+                    try:
+                        if (user or "").upper() == "E" and _should_notify("game", drop, 60):
+                            notify("E started a game")
+                    except Exception:
+                        pass
+                
+                elif op == "join":
+                    # Join existing game
+                    game_id = payload.get("gameId")
+                    game = game_manager.get_game(game_id)
+                    
+                    if game:
+                        # Add player to game if not already in
+                        if user not in game.get("players", []):
+                            game["players"].append(user)
+                            game_manager.update_game(game_id, {"players": game["players"]})
+                        
+                        # Broadcast 'joined' event
+                        await hub.broadcast(drop, {
+                            "type": "game",
+                            "payload": {
+                                "op": "joined",
+                                "gameId": game_id,
+                                "gameType": game.get("gameType"),
+                                "gameData": game.get("gameData"),
+                                "player": user
+                            }
+                        })
+                        
+                        logger.info(f"[Game] Player {user} joined game {game_id}")
+                    else:
+                        # Game not found
+                        await ws.send_json({
+                            "type": "error",
+                            "message": f"Game {game_id} not found"
+                        })
+                
+                elif op == "move":
+                    # Process move
+                    game_id = payload.get("gameId")
+                    move_data = payload.get("moveData", {})
+                    
+                    game = game_manager.get_game(game_id)
+                    if game:
+                        # Update game state with move
+                        game_data = game.get("gameData", {})
+                        
+                        # Apply move to board
+                        if "board" not in game_data:
+                            game_data["board"] = [[None,None,None],[None,None,None],[None,None,None]]
+                        
+                        r = move_data.get("r")
+                        c = move_data.get("c")
+                        marker = move_data.get("marker")
+                        
+                        if r is not None and c is not None and marker:
+                            game_data["board"][r][c] = marker
+                            game_data["currentTurn"] = move_data.get("nextTurn")
+                            
+                            game_manager.update_game(game_id, {"gameData": game_data})
+                        
+                        # Broadcast move to all players
+                        await hub.broadcast(drop, {
+                            "type": "game",
+                            "payload": {
+                                "op": "move",
+                                "gameId": game_id,
+                                "moveData": move_data,
+                                "gameData": game_data
+                            }
+                        })
+                        
+                        logger.info(f"[Game] Move in game {game_id}: {move_data}")
+                
+                elif op == "end_game":
+                    # End game
+                    game_id = payload.get("gameId")
+                    result = payload.get("result")
+                    
+                    game_manager.end_game(game_id)
+                    
+                    # Broadcast end event
+                    await hub.broadcast(drop, {
+                        "type": "game",
+                        "payload": {
+                            "op": "game_ended",
+                            "gameId": game_id,
+                            "result": result
+                        }
+                    })
+                    
+                    logger.info(f"[Game] Game {game_id} ended with result: {result}")
+                
+                elif op == "request_game_list":
+                    # Send active games list to requester
+                    active_games = game_manager.get_active_games(drop)
+                    
+                    await ws.send_json({
+                        "type": "game_list",
+                        "data": {
+                            "games": active_games
+                        }
+                    })
+                    
+                    logger.info(f"[Game] Sent {len(active_games)} active games to {user}")
+                
+                elif op in ["player_opened", "player_closed"]:
+                    # Broadcast player presence in game
+                    await hub.broadcast(drop, {
+                        "type": "game",
+                        "payload": payload
+                    })
+                    
+                    logger.info(f"[Game] Player {user} {op} game {payload.get('gameId')}")
+                
+                else:
+                    # Unknown game operation - passthrough for backward compatibility
+                    await hub.broadcast(drop, {"type": "game", "payload": payload})
+                    logger.warning(f"[Game] Unknown game operation: {op}")
             else:
                 # Unrecognized events are ignored
                 pass
