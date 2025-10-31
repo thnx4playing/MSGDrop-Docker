@@ -189,8 +189,8 @@ var GiphyPicker = (function(){
       item.className = 'giphy-item';
       
       var img = document.createElement('img');
-      // Use fixed_width_downsampled for grid preview (smaller, faster)
-      img.src = gif.images.fixed_width_downsampled.url;
+      // Use fixed_height_small for uniform grid (all GIFs are 100px tall)
+      img.src = gif.images.fixed_height_small.url;
       img.alt = gif.title || 'GIF';
       img.loading = 'lazy';
       

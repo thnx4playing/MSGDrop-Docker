@@ -1956,16 +1956,15 @@ html{overscroll-behavior-y:contain}
   -webkit-overflow-scrolling: touch;
   padding: 16px;
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, 1fr); /* Mobile: 2 columns */
   gap: 8px;
   align-content: start;
-  grid-auto-rows: minmax(100px, auto);
 }
 
 /* Desktop: 3 columns */
-@media (min-width: 640px) {
+@media (min-width: 768px) {
   .giphy-results {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, 1fr); /* Desktop: 3 columns */
     padding: 20px;
     gap: 12px;
   }
@@ -1990,13 +1989,13 @@ html{overscroll-behavior-y:contain}
 
 /* FIX: Items should fit properly without causing overflow */
 .giphy-item {
-  border-radius: 8px;
+  aspect-ratio: 1 / 1; /* Square */
   overflow: hidden;
+  border-radius: 8px;
   cursor: pointer;
   transition: transform 0.2s, box-shadow 0.2s;
   background: var(--surface);
   width: 100%;
-  height: auto;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2013,9 +2012,8 @@ html{overscroll-behavior-y:contain}
 
 .giphy-item img {
   width: 100%;
-  height: auto;
-  max-height: 200px;
-  object-fit: contain;
+  height: 100%;
+  object-fit: cover;
   display: block;
 }
 
