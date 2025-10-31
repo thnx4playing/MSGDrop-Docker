@@ -503,14 +503,21 @@ def compute_streak(drop_id: str):
         return {"streak": 0, "streakDays": 0, "users": users, "today": {"both": False}, "days": []}
     u1, u2 = users[0], users[1]
     i = 0
+    today_both = False
     while True:
         day = today_est - _dt.timedelta(days=i)
         key = day.strftime("%Y-%m-%d")
         s = per_day.get(key, set())
         both = (u1 in s) and (u2 in s)
         days_detail.append({"date": key, "u1": u1 in s, "u2": u2 in s, "both": both})
+
         if i == 0:
             today_both = both
+            # Skip today if both users haven't posted yet - don't break the streak
+            if not both:
+                i += 1
+                continue
+
         if both:
             streak += 1
             i += 1
