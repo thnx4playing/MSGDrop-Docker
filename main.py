@@ -225,6 +225,7 @@ def _set_session_cookies(response: Response, token: str):
     response.set_cookie(
         key=SESSION_COOKIE,
         value=token,
+        max_age=SESSION_TTL,  # Cookie expires when token expires
         httponly=True,
         secure=True,
         samesite="lax",
@@ -235,6 +236,7 @@ def _set_session_cookies(response: Response, token: str):
     response.set_cookie(
         key=UI_COOKIE,
         value=token,
+        max_age=SESSION_TTL,  # Cookie expires when token expires
         httponly=False,
         secure=True,
         samesite="lax",
@@ -314,6 +316,12 @@ def list_messages(drop_id: str, limit: int = 200, before: Optional[int] = None, 
             })
         out.append(msg)
     return {"dropId": drop_id, "version": int(max_seq or 0), "messages": out, "images": images}
+
+@app.head("/api/chat/{drop_id}")
+def head_messages(drop_id: str, req: Request = None):
+    """Lightweight endpoint for session validation"""
+    require_session(req)
+    return Response(status_code=200)
 
 @app.post("/api/chat/{drop_id}")
 async def post_message(drop_id: str,
