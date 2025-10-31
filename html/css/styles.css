@@ -1948,25 +1948,22 @@ html{overscroll-behavior-y:contain}
 
 /* FIX: Results should scroll properly without affecting outer layout */
 .giphy-results {
-  flex: 1;
-  overflow-y: auto;
-  /* FIX: Prevent horizontal scroll */
-  overflow-x: hidden;
-  /* FIX: Smooth iOS scrolling */
-  -webkit-overflow-scrolling: touch;
-  padding: 16px;
   display: grid;
-  grid-template-columns: repeat(2, 1fr); /* Mobile: 2 columns */
-  gap: 8px;
+  gap: 10px;
+  padding: 16px;
+  overflow-y: auto;
+  max-height: 60vh;
+  grid-template-columns: repeat(2, 1fr); /* Mobile: 2 cols */
+  flex: 1;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
   align-content: start;
 }
 
 /* Desktop: 3 columns */
 @media (min-width: 768px) {
   .giphy-results {
-    grid-template-columns: repeat(3, 1fr); /* Desktop: 3 columns */
-    padding: 20px;
-    gap: 12px;
+    grid-template-columns: repeat(3, 1fr); /* Desktop: 3 cols */
   }
 }
 
@@ -1989,21 +1986,21 @@ html{overscroll-behavior-y:contain}
 
 /* FIX: Items should fit properly without causing overflow */
 .giphy-item {
-  aspect-ratio: 1 / 1; /* Square */
-  overflow: hidden;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s;
-  background: var(--surface);
   width: 100%;
+  height: 150px; /* CRITICAL: Fixed height prevents overlap */
+  overflow: hidden; /* CRITICAL: Prevents content overflow */
+  border-radius: 6px;
+  background: var(--surface);
+  cursor: pointer;
+  transition: transform 0.2s ease;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .giphy-item:hover {
-  transform: scale(1.02);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  transform: scale(1.03);
+  z-index: 10;
 }
 
 .giphy-item:active {
