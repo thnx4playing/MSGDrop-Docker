@@ -94,6 +94,16 @@ def init_db():
             exp integer not null
         );
         """)
+        conn.exec_driver_sql("""
+        create table if not exists streaks(
+            drop_id text primary key,
+            current_streak integer not null default 0,
+            last_m_post text,
+            last_e_post text,
+            last_update_date text,
+            updated_at integer not null
+        );
+        """)
 
 init_db()
 
@@ -366,6 +376,17 @@ async def post_message(drop_id: str,
                 "u": user, "cid": None, "mt": message_type, "tx": text_, "b": blob_id, "m": mime, "rx": "{}",
                 "gurl": gif_url, "iurl": image_url, "ithumb": image_thumb})
 
+    # Update streak and broadcast if changed
+    user_normalized = (user or "").strip() or "E"
+    streak_result = update_streak_on_message(drop_id, user_normalized)
+    
+    if streak_result["changed"]:
+        streak_data = get_streak(drop_id)
+        await hub.broadcast(drop_id, {
+            "type": "streak",
+            "data": streak_data
+        })
+    
     await hub.broadcast(drop_id, {
         "type": "update",
         "message": {
@@ -484,74 +505,199 @@ def ts_to_est_date(ts_ms: int) -> str:
     ny_dt = utc_dt.astimezone(NY_TZ)
     return ny_dt.strftime("%Y-%m-%d")
 
-def compute_streak(drop_id: str):
-    # Pull recent 90 days to be safe
-    with engine.begin() as conn:
-        rows = conn.execute(text(
-            "select user, ts from messages where drop_id=:d order by ts desc limit 5000"
-        ), {"d": drop_id}).mappings().all()
-    if not rows:
-        return {"streak": 0, "streakDays": 0, "users": [], "today": {"both": False}, "days": []}
-    # Determine the two users by recency of appearance
-    seen = []
-    for r in rows:
-        u = (r["user"] or "").strip() or "user"
-        if u not in seen:
-            seen.append(u)
-        if len(seen) == 2:
-            break
-    users = seen[:2]
-    # Build per-day presence map
-    per_day: Dict[str, set] = {}
-    for r in rows:
-        u = (r["user"] or "").strip() or users[0] if users else "user"
-        day = ts_to_est_date(int(r["ts"]))
-        per_day.setdefault(day, set()).add(u)
-    # Walk back from today (EST) counting consecutive days with both users
+def get_or_create_streak_record(drop_id: str):
+    """Get streak record from database, create if doesn't exist"""
     import datetime as _dt
-    today_est = _dt.datetime.now(NY_TZ).date()
-    streak = 0
-    days_detail = []
-    # Ensure we have two usernames
-    if len(users) < 2:
-        return {"streak": 0, "streakDays": 0, "users": users, "today": {"both": False}, "days": []}
-    u1, u2 = users[0], users[1]
-    i = 0
-    today_both = False
-    while True:
-        day = today_est - _dt.timedelta(days=i)
-        key = day.strftime("%Y-%m-%d")
-        s = per_day.get(key, set())
-        both = (u1 in s) and (u2 in s)
-        days_detail.append({"date": key, "u1": u1 in s, "u2": u2 in s, "both": both})
+    with engine.begin() as conn:
+        row = conn.execute(text(
+            "select * from streaks where drop_id=:d"
+        ), {"d": drop_id}).mappings().first()
+        
+        if not row:
+            # Create new streak record
+            today = _dt.datetime.now(NY_TZ).date().strftime("%Y-%m-%d")
+            conn.execute(text("""
+                insert into streaks (drop_id, current_streak, last_update_date, updated_at)
+                values (:drop_id, 0, :today, :ts)
+            """), {
+                "drop_id": drop_id,
+                "today": today,
+                "ts": int(time.time() * 1000)
+            })
+            return {
+                "drop_id": drop_id,
+                "current_streak": 0,
+                "last_m_post": None,
+                "last_e_post": None,
+                "last_update_date": today,
+                "updated_at": int(time.time() * 1000)
+            }
+        
+        return dict(row)
 
-        if i == 0:
-            today_both = both
-            # Skip today if both users haven't posted yet - don't break the streak
-            if not both:
-                i += 1
-                continue
-
-        if both:
-            streak += 1
-            i += 1
-            # Cap to 365 to avoid infinite
-            if i > 365:
-                break
+def update_streak_on_message(drop_id: str, user: str) -> Dict[str, Any]:
+    """
+    Update streak when a message is posted.
+    Returns the updated streak data and whether it changed.
+    """
+    import datetime as _dt
+    
+    today = _dt.datetime.now(NY_TZ).date().strftime("%Y-%m-%d")
+    now_ts = int(time.time() * 1000)
+    
+    with engine.begin() as conn:
+        # Get current streak record
+        streak_row = conn.execute(text(
+            "select * from streaks where drop_id=:d"
+        ), {"d": drop_id}).mappings().first()
+        
+        if not streak_row:
+            # Create initial record
+            conn.execute(text("""
+                insert into streaks (drop_id, current_streak, last_m_post, last_e_post, last_update_date, updated_at)
+                values (:drop_id, 0, :m_post, :e_post, :today, :ts)
+            """), {
+                "drop_id": drop_id,
+                "m_post": today if user == "M" else None,
+                "e_post": today if user == "E" else None,
+                "today": today,
+                "ts": now_ts
+            })
+            
+            return {
+                "streak": 0,
+                "changed": False,
+                "last_m_post": today if user == "M" else None,
+                "last_e_post": today if user == "E" else None
+            }
+        
+        # Convert to dict for easier manipulation
+        streak = dict(streak_row)
+        old_streak = streak["current_streak"]
+        last_update_date = streak["last_update_date"]
+        last_m_post = streak["last_m_post"]
+        last_e_post = streak["last_e_post"]
+        
+        # Update the post date for this user
+        if user == "M":
+            last_m_post = today
+        elif user == "E":
+            last_e_post = today
+        
+        # Calculate new streak
+        new_streak = old_streak
+        
+        # Check if we need to update the streak count
+        if last_update_date != today:
+            # It's a new day - check if streak should continue or reset
+            yesterday = (_dt.datetime.now(NY_TZ).date() - _dt.timedelta(days=1)).strftime("%Y-%m-%d")
+            
+            # Check if both users posted yesterday
+            m_posted_yesterday = (streak["last_m_post"] == yesterday)
+            e_posted_yesterday = (streak["last_e_post"] == yesterday)
+            
+            if m_posted_yesterday and e_posted_yesterday:
+                # Streak continues! Check if both posted today
+                if last_m_post == today and last_e_post == today:
+                    new_streak = old_streak + 1
+                    last_update_date = today
+                # If only one posted today, keep the same streak (don't increment yet)
+            else:
+                # Streak broken - reset to 0
+                # If both users posted today, set streak to 1
+                if last_m_post == today and last_e_post == today:
+                    new_streak = 1
+                    last_update_date = today
+                else:
+                    new_streak = 0
         else:
-            break
-    return {"streak": streak, "streakDays": streak, "users": users, "today": {"both": today_both}, "days": days_detail}
+            # Same day - check if this completes today's requirement
+            if last_m_post == today and last_e_post == today and old_streak == 0:
+                # Both users just posted for the first time
+                new_streak = 1
+                last_update_date = today
+        
+        # Update the database
+        conn.execute(text("""
+            update streaks 
+            set current_streak = :streak,
+                last_m_post = :m_post,
+                last_e_post = :e_post,
+                last_update_date = :update_date,
+                updated_at = :ts
+            where drop_id = :drop_id
+        """), {
+            "streak": new_streak,
+            "m_post": last_m_post,
+            "e_post": last_e_post,
+            "update_date": last_update_date,
+            "ts": now_ts,
+            "drop_id": drop_id
+        })
+        
+        return {
+            "streak": new_streak,
+            "changed": new_streak != old_streak,
+            "last_m_post": last_m_post,
+            "last_e_post": last_e_post
+        }
+
+def get_streak(drop_id: str) -> Dict[str, Any]:
+    """Get current streak data"""
+    import datetime as _dt
+    
+    today = _dt.datetime.now(NY_TZ).date().strftime("%Y-%m-%d")
+    yesterday = (_dt.datetime.now(NY_TZ).date() - _dt.timedelta(days=1)).strftime("%Y-%m-%d")
+    
+    with engine.begin() as conn:
+        streak_row = conn.execute(text(
+            "select * from streaks where drop_id=:d"
+        ), {"d": drop_id}).mappings().first()
+        
+        if not streak_row:
+            return {
+                "streak": 0,
+                "bothPostedToday": False,
+                "mPostedToday": False,
+                "ePostedToday": False
+            }
+        
+        streak = dict(streak_row)
+        last_m_post = streak.get("last_m_post")
+        last_e_post = streak.get("last_e_post")
+        
+        # Check if we need to reset the streak due to missed day
+        last_update_date = streak.get("last_update_date")
+        current_streak = streak.get("current_streak", 0)
+        
+        # If last update wasn't yesterday or today, streak should be 0
+        if last_update_date and last_update_date not in [today, yesterday]:
+            current_streak = 0
+            # Update the database to reflect reset
+            conn.execute(text("""
+                update streaks 
+                set current_streak = 0
+                where drop_id = :drop_id
+            """), {"drop_id": drop_id})
+        
+        return {
+            "streak": current_streak,
+            "bothPostedToday": (last_m_post == today and last_e_post == today),
+            "mPostedToday": last_m_post == today,
+            "ePostedToday": last_e_post == today
+        }
 
 @app.get("/api/chat/{drop_id}/streak")
-def get_streak(drop_id: str, req: Request = None):
+def api_get_streak(drop_id: str, req: Request = None):
     require_session(req)
-    return compute_streak(drop_id)
+    return get_streak(drop_id)
 
 @app.post("/api/chat/{drop_id}/streak")
-def post_streak(drop_id: str, req: Request = None):
-    # Idempotent: recompute based on messages; no write required
+def api_post_streak(drop_id: str, req: Request = None):
+    # This endpoint is now deprecated but kept for compatibility
+    # Streaks update automatically on message post
     require_session(req)
-    return compute_streak(drop_id)
+    return get_streak(drop_id)
 
 # --- Blob serving ---
 @app.get("/blob/{blob_id}")

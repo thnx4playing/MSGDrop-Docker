@@ -450,10 +450,6 @@ var App = {
       if(sent){
         console.log('GIF sent via WebSocket');
         
-        // Check and update streak after posting (non-blocking)
-        if(typeof Streak !== 'undefined'){
-          Streak.checkAndUpdate(this.dropId);
-        }
         return;
       }
     }

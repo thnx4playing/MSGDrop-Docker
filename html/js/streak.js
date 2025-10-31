@@ -1,7 +1,10 @@
-// Streak tracking
+// Streak tracking - redesigned for reliability
 var Streak = {
   currentStreak: 0,
-  lastUpdateDate: null,
+  bothPostedToday: false,
+  mPostedToday: false,
+  ePostedToday: false,
+  lastFetchTime: 0,
 
   fetch: async function(dropId){
     try {
@@ -12,12 +15,26 @@ var Streak = {
         return;
       }
       
-      this.currentStreak = data.streak || 0;
-      this.lastUpdateDate = data.lastUpdateDate || null;
-      
-      this.render();
+      this.updateData(data);
+      this.lastFetchTime = Date.now();
     } catch(e){
       console.error('[Streak] Fetch error:', e);
+    }
+  },
+
+  updateData: function(data){
+    var oldStreak = this.currentStreak;
+    
+    this.currentStreak = data.streak || 0;
+    this.bothPostedToday = data.bothPostedToday || false;
+    this.mPostedToday = data.mPostedToday || false;
+    this.ePostedToday = data.ePostedToday || false;
+    
+    this.render();
+    
+    // Show celebration if streak increased
+    if(this.currentStreak > oldStreak && this.currentStreak > 0){
+      this.celebrate();
     }
   },
 
@@ -27,68 +44,47 @@ var Streak = {
     
     countEl.textContent = this.currentStreak;
     
-    // Add bounce animation on update
+    // Update visual indicator
     var display = document.getElementById('streakDisplay');
-    if(display && this.currentStreak > 0){
-      display.classList.add('streak-bounce');
-      setTimeout(function(){
-        display.classList.remove('streak-bounce');
-      }, 600);
-    }
-  },
-
-  checkAndUpdate: async function(dropId){
-    try {
-      var userRole = App.myRole || Storage.getRole(dropId) || 'E';
-      var res = await API.updateStreak(dropId, userRole);
-      
-      if(!res.ok){
-        console.error('[Streak] Update failed:', res.status);
-        return;
-      }
-      
-      var data = await res.json();
-      
-      if(!data) {
-        console.warn('[Streak] No data received from update');
-        return;
-      }
-      
-      var oldStreak = this.currentStreak;
-      this.currentStreak = data.streak || 0;
-      this.lastUpdateDate = data.lastUpdateDate || null;
-      
-      this.render();
-      
-      // Show celebration if streak increased
-      if(data.streak > oldStreak){
-        this.celebrate();
-      }
-    } catch(e){
-      console.error('[Streak] Update error:', e);
+    if(!display) return;
+    
+    // Add subtle pulse when both posted today
+    if(this.bothPostedToday && this.currentStreak > 0){
+      display.classList.add('streak-complete');
+    } else {
+      display.classList.remove('streak-complete');
     }
   },
 
   handleWebSocketUpdate: function(data){
-    var oldStreak = this.currentStreak;
-    this.currentStreak = data.streak || 0;
-    this.lastUpdateDate = data.lastUpdateDate || null;
-    
-    this.render();
-    
-    // Show celebration if streak increased
-    if(this.currentStreak > oldStreak){
-      this.celebrate();
-    }
+    console.log('[Streak] WebSocket update:', data);
+    this.updateData(data);
   },
 
   celebrate: function(){
     var display = document.getElementById('streakDisplay');
     if(!display) return;
     
+    // Remove any existing animation
+    display.classList.remove('streak-celebrate');
+    
+    // Trigger reflow to restart animation
+    void display.offsetWidth;
+    
     display.classList.add('streak-celebrate');
     setTimeout(function(){
       display.classList.remove('streak-celebrate');
     }, 1000);
+  },
+
+  // Refresh streak data (throttled to once per 5 seconds)
+  refresh: async function(dropId){
+    var now = Date.now();
+    if(now - this.lastFetchTime < 5000) {
+      console.log('[Streak] Throttled refresh (too soon)');
+      return;
+    }
+    
+    await this.fetch(dropId);
   }
 };

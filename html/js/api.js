@@ -124,12 +124,12 @@ var API = {
     return await res.json();
   },
 
+  // Deprecated - streaks now update automatically
+  // Kept for backwards compatibility
   updateStreak: async function(dropId, user){
-    // FIXED: Updated to /api/chat/{dropId}/streak
     return await this.api('/chat/' + dropId + '/streak', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dropId: dropId, user: user })
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
     });
   }
 };
