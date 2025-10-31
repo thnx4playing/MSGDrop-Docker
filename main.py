@@ -694,6 +694,7 @@ game_manager = GameManager()
 
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
+    # No rate_limit() call here - WebSocket is persistent connection
     params = dict(ws.query_params)
     # verify session token from query
     session_token = params.get("sessionToken") or params.get("sess")
