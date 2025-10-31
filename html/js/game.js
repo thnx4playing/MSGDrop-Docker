@@ -124,14 +124,16 @@ var Game = {
       return;
     }
     
-    // Calculate marker and next turn BEFORE sending
+    // ✅ Calculate marker and next turn BEFORE sending
     var marker = this.state.myMarker;
     var nextTurn = (this.state.currentTurn === 'E') ? 'M' : 'E';
     
-    console.log('[Game] Sending move to server...', {
+    console.log('[Game] Sending move with:', {
+      r: r,
+      c: c,
+      by: Messages.myRole,
       marker: marker,
-      nextTurn: nextTurn,
-      currentBoard: JSON.parse(JSON.stringify(this.state.board))
+      nextTurn: nextTurn
     });
     
     try {
@@ -144,8 +146,8 @@ var Game = {
             r: r, 
             c: c,
             by: Messages.myRole,
-            marker: marker,      // ← ADD THIS
-            nextTurn: nextTurn   // ← ADD THIS
+            marker: marker,      // ← MUST INCLUDE THIS
+            nextTurn: nextTurn   // ← MUST INCLUDE THIS
           }
         }
       }));
@@ -576,7 +578,7 @@ var Game = {
       console.log('[Game] Game ended', endedByMe ? '(by you)' : '(by other player)');
       console.log('[Game] Result:', data.result);
       
-      // Always show alert with game result (for both players)
+      // Determine the message to display
       var result = data.result || {};
       var message = 'Game ended';
       
@@ -586,22 +588,30 @@ var Game = {
           (this.state.starter === 'E' ? 'M' : 'E');
         
         if(winnerRole === Messages.myRole){
-          message = 'You won!';
+          message = '🎉 You won!';
         } else {
-          message = 'You lost!';
+          message = '😔 You lost!';
         }
       } else if(result.reason === 'forfeit'){
         message = endedByMe ? 'You forfeited the game' : 'The other player forfeited';
       } else {
-        message = "It's a draw!";
+        message = "🤝 It's a draw!";
       }
       
-      // Show alert with game result
-      alert(message);
+      // ✅ Show message in the game status area instead of alert
+      var statusEl = UI.els.gameStatus;
+      if(statusEl){
+        statusEl.innerHTML = '<span class="status-main game-end-message">' + message + '</span>';
+        statusEl.classList.remove('highlight');
+        statusEl.classList.add('win');
+      }
       
-      this.currentGameId = null;
-      UI.hideGameModal();
-      this.requestGameList();
+      // ✅ Auto-close the game after 3 seconds
+      setTimeout(function(){
+        this.currentGameId = null;
+        UI.hideGameModal();
+        this.requestGameList();
+      }.bind(this), 3000);
     }
   },
 

@@ -976,26 +976,49 @@ async def ws_endpoint(ws: WebSocket):
                         
                         r = move_data.get("r")
                         c = move_data.get("c")
+                        mover = move_data.get("by")
+                        
+                        # ✅ Get marker from moveData, or calculate it from starter
                         marker = move_data.get("marker")
+                        if not marker and mover:
+                            # Starter is X, non-starter is O
+                            starter = game_data.get("starter")
+                            marker = "X" if mover == starter else "O"
+                            logger.info(f"[Game] Calculated marker {marker} for {mover} (starter={starter})")
                         
+                        # ✅ Get nextTurn from moveData, or calculate it
+                        next_turn = move_data.get("nextTurn")
+                        if not next_turn and mover:
+                            # Switch turns
+                            next_turn = "M" if mover == "E" else "E"
+                            logger.info(f"[Game] Calculated nextTurn {next_turn} after {mover}")
+                        
+                        # ✅ Update board if we have all required data
                         if r is not None and c is not None and marker:
+                            logger.info(f"[Game] Applying move to board: r={r}, c={c}, marker={marker}, nextTurn={next_turn}")
                             game_data["board"][r][c] = marker
-                            game_data["currentTurn"] = move_data.get("nextTurn")
+                            if next_turn:
+                                game_data["currentTurn"] = next_turn
                             
+                            # ✅ CRITICAL: Update the game with new gameData
                             game_manager.update_game(game_id, {"gameData": game_data})
+                            
+                            logger.info(f"[Game] Updated board state: {game_data['board']}")
+                        else:
+                            logger.error(f"[Game] Invalid move data: r={r}, c={c}, marker={marker}")
                         
-                        # Broadcast move to all players
+                        # Broadcast move to all players with UPDATED gameData
                         await hub.broadcast(drop, {
                             "type": "game",
                             "payload": {
                                 "op": "move",
                                 "gameId": game_id,
                                 "moveData": move_data,
-                                "gameData": game_data
+                                "gameData": game_data  # ✅ Send updated board state
                             }
                         })
                         
-                        logger.info(f"[Game] Move in game {game_id}: {move_data}")
+                        logger.info(f"[Game] Broadcasted move in game {game_id}: {move_data}")
                 
                 elif op == "end_game":
                     # End game
