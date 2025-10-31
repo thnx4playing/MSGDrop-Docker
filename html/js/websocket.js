@@ -63,7 +63,7 @@ var WebSocketManager = {
     var url = CONFIG.WS_URL 
       + '?sessionToken=' + encodeURIComponent(sessionToken)
       + '&dropId=' + encodeURIComponent(dropId) 
-      + '&role=' + encodeURIComponent(userLabel);
+      + '&user=' + encodeURIComponent(userLabel);
     
     console.log('[WS] Connecting to:', CONFIG.WS_URL);
     console.log('[WS] Using session-ok token for authentication');
