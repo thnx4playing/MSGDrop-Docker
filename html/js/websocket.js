@@ -126,8 +126,8 @@ var WebSocketManager = {
             this.handlePresence(msg.data);
           } else if(msg.type === 'presence_request' && msg.data){
             this.sendHeartbeat();
-          } else if(msg.type === 'game' && msg.data){
-            if(this.onGameCallback) this.onGameCallback(msg.data);
+          } else if(msg.type === 'game' && msg.payload){
+            if(this.onGameCallback) this.onGameCallback(msg.payload);
           } else if(msg.type === 'game_list' && msg.data){
             if(this.onGameListCallback) this.onGameListCallback(msg.data);
           } else if(msg.type === 'streak' && msg.data){
