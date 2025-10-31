@@ -188,19 +188,6 @@ def require_session(req: Request):
     if not _verify_token(c):
         raise HTTPException(401, "bad session")
 
-# --- Simple generic rate limiter (per-IP window)
-from collections import defaultdict
-request_counts = defaultdict(list)
-
-def rate_limit(req: Request, max_requests: int = 300, window: int = 60):
-    client_ip = req.client.host if getattr(req, "client", None) else "unknown"
-    now = int(time.time())
-    lst = request_counts[client_ip]
-    lst[:] = [t for t in lst if now - t < window]
-    if len(lst) >= max_requests:
-        raise HTTPException(429, "Rate limit exceeded")
-    lst.append(now)
-
 # --- Health ---
 @app.get("/api/health")
 def health():
@@ -274,7 +261,6 @@ def unlock(body: UnlockBody, req: Request, response: Response):
 @app.get("/api/chat/{drop_id}")
 def list_messages(drop_id: str, limit: int = 200, before: Optional[int] = None, req: Request = None):
     require_session(req)
-    rate_limit(req, 60, 60)
     sql = "select * from messages where drop_id=:d"
     params = {"d": drop_id}
     if before:
@@ -330,7 +316,6 @@ async def post_message(drop_id: str,
                        file: Optional[UploadFile] = File(default=None),
                        req: Request = None):
     require_session(req)
-    # rate_limit(req, 30, 60)  # Disabled for image uploads - natural rate limiting via network speed
     logger.info(f"[POST] drop={drop_id} user={user}")
     ts = int(time.time() * 1000)
     msg_id = secrets.token_hex(8)
@@ -400,7 +385,6 @@ from fastapi import Body
 @app.patch("/api/chat/{drop_id}")
 async def edit_message(drop_id: str, body: Dict[str, Any] = Body(...), req: Request = None):
     require_session(req)
-    rate_limit(req, 60, 60)
     seq = body.get("seq")
     text_val = body.get("text")
     if seq is None or text_val is None:
@@ -415,7 +399,6 @@ async def edit_message(drop_id: str, body: Dict[str, Any] = Body(...), req: Requ
 @app.delete("/api/chat/{drop_id}")
 async def delete_message(drop_id: str, body: Dict[str, Any] = Body(...), req: Request = None):
     require_session(req)
-    rate_limit(req, 60, 60)
     seq = body.get("seq")
     if seq is None:
         raise HTTPException(400, "seq required")
@@ -435,7 +418,6 @@ async def delete_message(drop_id: str, body: Dict[str, Any] = Body(...), req: Re
 @app.post("/api/chat/{drop_id}/react")
 async def react_message(drop_id: str, body: Dict[str, Any] = Body(...), req: Request = None):
     require_session(req)
-    rate_limit(req, 120, 60)
     seq = body.get("seq")
     emoji = body.get("emoji")
     op = (body.get("op") or "add").lower()
@@ -465,7 +447,6 @@ async def react_message(drop_id: str, body: Dict[str, Any] = Body(...), req: Req
 @app.delete("/api/chat/{drop_id}/images/{image_id}")
 async def delete_image(drop_id: str, image_id: str, req: Request = None):
     require_session(req)
-    rate_limit(req, 30, 60)
     # Delete any messages that reference this blob in this drop
     with engine.begin() as conn:
         conn.execute(text("delete from messages where drop_id=:d and blob_id=:b"), {"d": drop_id, "b": image_id})
