@@ -128,7 +128,12 @@ var Game = {
     var marker = this.state.myMarker;
     var nextTurn = (this.state.currentTurn === 'E') ? 'M' : 'E';
     
-    console.log('[Game] Sending move to server...');
+    console.log('[Game] Sending move to server...', {
+      marker: marker,
+      nextTurn: nextTurn,
+      currentBoard: JSON.parse(JSON.stringify(this.state.board))
+    });
+    
     try {
       WebSocketManager.ws.send(JSON.stringify({
         action: 'game',
@@ -319,14 +324,24 @@ var Game = {
   },
 
   joinGame: function(gameId){
+    console.log('[Game] ========== JOIN GAME CALLED ==========');
+    console.log('[Game] Attempting to join gameId:', gameId);
+    console.log('[Game] Current game ID in memory:', this.currentGameId);
+    console.log('[Game] Current board state:', JSON.parse(JSON.stringify(this.state.board)));
+    
     if(!WebSocketManager.ws || WebSocketManager.ws.readyState !== 1){
+      console.error('[Game] Cannot join - WebSocket not connected');
       alert('Not connected to server');
       return;
     }
     
-    // If this is the same game we're currently in, just reopen the modal
-    if(this.currentGameId === gameId){
-      console.log('[Game] Reopening current game:', gameId);
+    // If this is the same game we're currently in AND we have game state, just reopen the modal
+    var hasGameState = this.state.board.some(function(row){
+      return row.some(function(cell){ return cell !== null; });
+    });
+    
+    if(this.currentGameId === gameId && hasGameState){
+      console.log('[Game] Reopening current game with existing state');
       UI.showGameModal();
       
       // Notify other player that we reopened the game
@@ -347,6 +362,8 @@ var Game = {
       return;
     }
     
+    // Otherwise, join the game (will load state from server)
+    console.log('[Game] Sending join request to server...');
     try {
       WebSocketManager.ws.send(JSON.stringify({
         action: 'game',
@@ -355,7 +372,7 @@ var Game = {
           gameId: gameId
         }
       }));
-      console.log('[Game] Joining game:', gameId);
+      console.log('[Game] Join request sent for game:', gameId);
     } catch(e){
       console.error('[Game] Failed to join game:', e);
       alert('Failed to join game');
@@ -416,16 +433,30 @@ var Game = {
         }
       }
     } else if(data.op === 'joined'){
+      console.log('[Game] ========== JOINED EVENT RECEIVED ==========');
+      console.log('[Game] Full joined data:', JSON.stringify(data, null, 2));
+      
       // Joined existing game
       this.currentGameId = data.gameId;
       var gameData = data.gameData || {};
       
-      // ✅ DON'T call init() - just restore the state directly
+      console.log('[Game] gameData.board:', gameData.board);
+      console.log('[Game] gameData.currentTurn:', gameData.currentTurn);
+      console.log('[Game] gameData.starter:', gameData.starter);
+      
+      // ✅ RESTORE STATE DIRECTLY - Don't call init() which resets everything
       this.state.seed = gameData.seed;
       this.state.starter = gameData.starter;
       
       // Restore board and turn (or use defaults if not in gameData yet)
-      this.state.board = gameData.board || [[null,null,null],[null,null,null],[null,null,null]];
+      if(gameData.board && Array.isArray(gameData.board)){
+        console.log('[Game] Restoring board from server:', gameData.board);
+        this.state.board = gameData.board;
+      } else {
+        console.log('[Game] No board in gameData, using empty board');
+        this.state.board = [[null,null,null],[null,null,null],[null,null,null]];
+      }
+      
       this.state.currentTurn = gameData.currentTurn || gameData.starter;
       this.state.gameOver = false;
       this.state.winner = null;
@@ -434,9 +465,12 @@ var Game = {
       this.state.myMarker = (Messages.myRole === this.state.starter) ? 'X' : 'O';
       this.state.theirMarker = (Messages.myRole === this.state.starter) ? 'O' : 'X';
       
-      console.log('[Game] Restored game state - My role:', Messages.myRole, 'Starter:', this.state.starter, 'My marker:', this.state.myMarker);
-      console.log('[Game] Board state:', JSON.parse(JSON.stringify(this.state.board)));
-      console.log('[Game] Current turn:', this.state.currentTurn);
+      console.log('[Game] Restored game state:');
+      console.log('  - My role:', Messages.myRole);
+      console.log('  - Starter:', this.state.starter);
+      console.log('  - My marker:', this.state.myMarker);
+      console.log('  - Board state:', JSON.parse(JSON.stringify(this.state.board)));
+      console.log('  - Current turn:', this.state.currentTurn);
       
       // Mark that other player has game open (they're joining)
       this.state.otherPlayerHasGameOpen = true;
@@ -446,9 +480,11 @@ var Game = {
       if(result){
         this.state.gameOver = true;
         this.state.winner = result.winner;
+        console.log('[Game] Game is over - winner:', result.winner);
       } else if(this.isBoardFull()){
         this.state.gameOver = true;
         this.state.winner = null;
+        console.log('[Game] Game is over - draw');
       }
       
       // Render the restored state
@@ -456,7 +492,7 @@ var Game = {
       this.updateStatus();
       
       UI.showGameModal();
-      console.log('[Game] Joined game:', this.currentGameId);
+      console.log('[Game] Successfully joined and opened game:', this.currentGameId);
       
       // Notify other players that we have the game open
       if(WebSocketManager.ws && WebSocketManager.ws.readyState === 1){
