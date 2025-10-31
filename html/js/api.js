@@ -86,6 +86,9 @@ var API = {
   uploadImage: async function(dropId, file){
     var fd = new FormData();
     fd.append('file', file);
+    // Add user field so backend knows who uploaded the image
+    var userRole = App.myRole || Storage.getRole(dropId) || 'E';
+    fd.append('user', userRole);
     var res = await fetch(CONFIG.API_BASE_URL.replace(/\/$/,'') + '/chat/'+dropId, {
       method:'POST',
       body: fd,
