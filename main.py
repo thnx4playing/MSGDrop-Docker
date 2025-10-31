@@ -330,7 +330,7 @@ async def post_message(drop_id: str,
                        file: Optional[UploadFile] = File(default=None),
                        req: Request = None):
     require_session(req)
-    rate_limit(req, 30, 60)
+    # rate_limit(req, 30, 60)  # Disabled for image uploads - natural rate limiting via network speed
     logger.info(f"[POST] drop={drop_id} user={user}")
     ts = int(time.time() * 1000)
     msg_id = secrets.token_hex(8)
