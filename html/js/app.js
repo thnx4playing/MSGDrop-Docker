@@ -481,11 +481,6 @@ var App = {
     .then(function(data){
       Messages.applyDrop(data);
       console.log('GIF message sent successfully via HTTP');
-      
-      // Update streak (non-blocking)
-      if(typeof Streak !== 'undefined'){
-        Streak.checkAndUpdate(this.dropId);
-      }
     }.bind(this))
     .catch(function(e){
       console.error('Failed to send GIF:', e);
@@ -514,11 +509,6 @@ var App = {
           UI.els.reply.value='';
           UI.els.reply.style.height = 'auto';
           
-          // Check and update streak after posting (non-blocking)
-          if(typeof Streak !== 'undefined'){
-            Streak.checkAndUpdate(this.dropId);
-          }
-          
           // Re-enable button
           setTimeout(function(){
             if(UI.els.postBtn) UI.els.postBtn.disabled=false;
@@ -542,11 +532,6 @@ var App = {
       
       UI.els.reply.value='';
       UI.els.reply.style.height = 'auto';
-      
-      // Check and update streak after posting (non-blocking)
-      if(typeof Streak !== 'undefined'){
-        Streak.checkAndUpdate(this.dropId);
-      }
       
       // ⚡ OPTIMIZED: Single fetch gets both messages and images
       setTimeout(async function(){ 
