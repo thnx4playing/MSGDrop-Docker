@@ -588,9 +588,14 @@ def update_streak_on_message(drop_id: str, user: str) -> Dict[str, Any]:
             # Both users posted today!
             
             if old_update_date == today:
-                # Already processed today - no change
-                logger.info(f"[STREAK] Already counted today, no change")
-                pass
+                # Already processed today - but check if we need to increment from 0 to 1
+                if old_streak == 0:
+                    # Special case: both posted today for the first time
+                    new_streak = 1
+                    logger.info(f"[STREAK] First time both posted today: 0 -> 1")
+                else:
+                    # Already counted and streak > 0, no change
+                    logger.info(f"[STREAK] Already counted today, no change")
             
             elif old_update_date == yesterday:
                 # Both posted yesterday AND both posted today - increment!
