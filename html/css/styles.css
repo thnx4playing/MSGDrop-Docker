@@ -292,45 +292,46 @@ body.no-scroll{
   animation:streak-celebrate 1s ease-in-out;
 }
 
-/* Streak visual enhancements */
+/* Streak Display - Fixed positioning */
 #streakDisplay {
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  transition: box-shadow 0.3s ease;
+  transform: translateZ(0); /* GPU acceleration */
 }
 
+/* Celebration animation */
+#streakDisplay.streak-celebrate {
+  animation: celebrate 1s ease-out forwards;
+}
+
+@keyframes celebrate {
+  0% { transform: scale(1) rotate(0deg); }
+  15% { transform: scale(1.2) rotate(-10deg); }
+  30% { transform: scale(1.2) rotate(10deg); }
+  45% { transform: scale(1.2) rotate(-10deg); }
+  60% { transform: scale(1.2) rotate(10deg); }
+  75% { transform: scale(1.1) rotate(-5deg); }
+  90% { transform: scale(1.1) rotate(5deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+
+/* Pulse when both posted today */
 #streakDisplay.streak-complete {
-  box-shadow: 0 0 20px rgba(255, 215, 0, 0.6);
   animation: pulse 2s infinite;
 }
 
 @keyframes pulse {
-  0%, 100% {
-    box-shadow: 0 0 20px rgba(255, 215, 0, 0.4);
-  }
-  50% {
-    box-shadow: 0 0 30px rgba(255, 215, 0, 0.8);
-  }
+  0%, 100% { box-shadow: 0 0 20px rgba(255, 215, 0, 0.4); }
+  50% { box-shadow: 0 0 30px rgba(255, 215, 0, 0.8); }
 }
 
-#streakDisplay.streak-celebrate {
-  animation: celebrate 1s ease-out;
-}
-
-@keyframes celebrate {
-  0% {
-    transform: scale(1);
-  }
-  25% {
-    transform: scale(1.2) rotate(-5deg);
-  }
-  50% {
-    transform: scale(1.2) rotate(5deg);
-  }
-  75% {
-    transform: scale(1.2) rotate(-5deg);
-  }
-  100% {
-    transform: scale(1);
-  }
+/* Force reset after animation ends */
+#streakDisplay:not(.streak-celebrate) {
+  transform: scale(1) rotate(0deg);
+  animation: none;
 }
 
 [data-theme="dark"] .presence-badge.active{

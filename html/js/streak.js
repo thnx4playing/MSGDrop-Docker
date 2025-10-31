@@ -32,8 +32,9 @@ var Streak = {
     
     this.render();
     
-    // Show celebration if streak increased
-    if(this.currentStreak > oldStreak && this.currentStreak > 0){
+    // Show celebration ONLY if streak increased from non-zero
+    // (prevents animation on page load when going from 0 to existing streak)
+    if(this.currentStreak > oldStreak && oldStreak > 0){
       this.celebrate();
     }
   },
@@ -65,14 +66,22 @@ var Streak = {
     var display = document.getElementById('streakDisplay');
     if(!display) return;
     
-    // Remove any existing animation
-    display.classList.remove('streak-celebrate');
+    // Clear any existing timeout to prevent overlapping animations
+    if(this.celebrateTimeout){
+      clearTimeout(this.celebrateTimeout);
+    }
     
-    // Trigger reflow to restart animation
+    // Remove all animation classes
+    display.classList.remove('streak-celebrate', 'streak-complete', 'streak-bounce');
+    
+    // Force reflow to restart animation
     void display.offsetWidth;
     
+    // Add celebration animation
     display.classList.add('streak-celebrate');
-    setTimeout(function(){
+    
+    // Remove after 1 second (animation duration)
+    this.celebrateTimeout = setTimeout(function(){
       display.classList.remove('streak-celebrate');
     }, 1000);
   },
