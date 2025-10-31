@@ -132,7 +132,11 @@ var Game = {
         payload: {
           op: 'move',
           gameId: this.currentGameId,
-          moveData: { r: r, c: c }
+          moveData: { 
+            r: r, 
+            c: c,
+            by: Messages.myRole  // ✅ Include who made the move
+          }
         }
       }));
       console.log('[Game] Move sent successfully');
@@ -146,6 +150,14 @@ var Game = {
     var c = data.c;
     var marker = data.marker;
     
+    console.log('[Game] Applying move to board:', {
+      r: r,
+      c: c,
+      marker: marker,
+      nextTurn: data.nextTurn,
+      beforeBoard: JSON.parse(JSON.stringify(this.state.board))
+    });
+    
     this.state.board[r][c] = marker;
     this.state.currentTurn = data.nextTurn;
     
@@ -157,6 +169,8 @@ var Game = {
       this.state.gameOver = true;
       this.state.winner = null;
     }
+    
+    console.log('[Game] After move - board:', JSON.parse(JSON.stringify(this.state.board)), 'currentTurn:', this.state.currentTurn, 'gameOver:', this.state.gameOver);
     
     this.renderBoard();
     this.updateStatus();
@@ -438,13 +452,22 @@ var Game = {
       // Move was made
       if(data.moveData){
         var moveData = data.moveData;
-        var marker = (moveData.by === this.state.starter) ? 'X' : 'O';
+        
+        // Determine who made the move - use moveData.by if available, otherwise use current turn
+        var mover = moveData.by || this.state.currentTurn;
+        var marker = (mover === this.state.starter) ? 'X' : 'O';
+        
+        var nextTurn = data.gameData && data.gameData.currentTurn 
+          ? data.gameData.currentTurn 
+          : (mover === 'E' ? 'M' : 'E');  // ✅ CORRECT - swap from mover
+        
+        console.log('[Game] Applying move - mover:', mover, 'marker:', marker, 'nextTurn:', nextTurn);
         
         this.applyMove({
           r: moveData.r,
           c: moveData.c,
           marker: marker,
-          nextTurn: data.gameData && data.gameData.currentTurn ? data.gameData.currentTurn : this.state.currentTurn
+          nextTurn: nextTurn
         });
       }
     } else if(data.op === 'player_closed'){
