@@ -488,7 +488,7 @@ def compute_streak(drop_id: str):
             "select user, ts from messages where drop_id=:d order by ts desc limit 5000"
         ), {"d": drop_id}).mappings().all()
     if not rows:
-        return {"streakDays": 0, "users": [], "today": {"both": False}, "days": []}
+        return {"streak": 0, "streakDays": 0, "users": [], "today": {"both": False}, "days": []}
     # Determine the two users by recency of appearance
     seen = []
     for r in rows:
@@ -511,7 +511,7 @@ def compute_streak(drop_id: str):
     days_detail = []
     # Ensure we have two usernames
     if len(users) < 2:
-        return {"streakDays": 0, "users": users, "today": {"both": False}, "days": []}
+        return {"streak": 0, "streakDays": 0, "users": users, "today": {"both": False}, "days": []}
     u1, u2 = users[0], users[1]
     i = 0
     while True:
@@ -530,7 +530,7 @@ def compute_streak(drop_id: str):
                 break
         else:
             break
-    return {"streakDays": streak, "users": users, "today": {"both": today_both}, "days": days_detail}
+    return {"streak": streak, "streakDays": streak, "users": users, "today": {"both": today_both}, "days": days_detail}
 
 @app.get("/api/chat/{drop_id}/streak")
 def get_streak(drop_id: str, req: Request = None):
@@ -660,7 +660,10 @@ async def ws_endpoint(ws: WebSocket):
             t = msg.get("type") or msg.get("action")
             payload = msg.get("payload") or msg
             if t == "typing":
-                await hub.broadcast(drop, {"type": "typing", "payload": payload})
+                # Add user to typing payload so recipient knows WHO is typing
+                typing_payload = dict(payload or {})
+                typing_payload["user"] = user
+                await hub.broadcast(drop, {"type": "typing", "payload": typing_payload})
             elif t == "ping":
                 await ws.send_json({"type": "pong", "ts": int(time.time()*1000)})
             elif t == "notify":

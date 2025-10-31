@@ -120,8 +120,8 @@ var WebSocketManager = {
                 });
               }
             }
-          } else if(msg.type === 'typing' && msg.data){
-            if(this.onTypingCallback) this.onTypingCallback(msg.data);
+          } else if(msg.type === 'typing' && msg.payload){
+            if(this.onTypingCallback) this.onTypingCallback(msg.payload);
           } else if(msg.type === 'presence' && msg.data){
             this.handlePresence(msg.data);
           } else if(msg.type === 'presence_request' && msg.data){
