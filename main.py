@@ -376,6 +376,9 @@ async def post_message(drop_id: str,
     msg_id = secrets.token_hex(8)
     blob_id, mime = None, None
     gif_url = None
+    gif_preview = None
+    gif_width = 0
+    gif_height = 0
     image_url = None
     image_thumb = None
     message_type = "text"
@@ -390,6 +393,12 @@ async def post_message(drop_id: str,
         image_url = body.get("imageUrl")
         if gif_url:
             message_type = "gif"
+            # Extract GIF metadata
+            gif_preview = body.get("gifPreview")
+            gif_width = body.get("gifWidth", 0)
+            gif_height = body.get("gifHeight", 0)
+            title = body.get("title") or "GIF"
+            text_ = f"[GIF: {title}]"
         elif image_url:
             message_type = "image"
 
@@ -416,11 +425,11 @@ async def post_message(drop_id: str,
         next_seq = int(row["next"]) if row else 1
         now_ms = ts
         conn.execute(text("""
-          insert into messages(id,drop_id,seq,ts,created_at,updated_at,user,client_id,message_type,text,blob_id,mime,reactions,gif_url,image_url,image_thumb)
-          values(:id,:d,:seq,:ts,:ca,:ua,:u,:cid,:mt,:tx,:b,:m,:rx,:gurl,:iurl,:ithumb)
+          insert into messages(id,drop_id,seq,ts,created_at,updated_at,user,client_id,message_type,text,blob_id,mime,reactions,gif_url,gif_preview,gif_width,gif_height,image_url,image_thumb)
+          values(:id,:d,:seq,:ts,:ca,:ua,:u,:cid,:mt,:tx,:b,:m,:rx,:gurl,:gprev,:gw,:gh,:iurl,:ithumb)
         """), {"id": msg_id, "d": drop_id, "seq": next_seq, "ts": ts, "ca": now_ms, "ua": now_ms,
                 "u": user, "cid": None, "mt": message_type, "tx": text_, "b": blob_id, "m": mime, "rx": "{}",
-                "gurl": gif_url, "iurl": image_url, "ithumb": image_thumb})
+                "gurl": gif_url, "gprev": gif_preview, "gw": gif_width, "gh": gif_height, "iurl": image_url, "ithumb": image_thumb})
 
     # Cleanup old messages (keep only 20 most recent)
     cleanup_old_messages(drop_id, keep_count=20)
