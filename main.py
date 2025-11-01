@@ -377,6 +377,7 @@ async def post_message(drop_id: str,
     blob_id, mime = None, None
     gif_url = None
     image_url = None
+    image_thumb = None
     message_type = "text"
 
     # If JSON body provided (GIF/image URL style)
