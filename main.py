@@ -319,6 +319,51 @@ def head_messages(drop_id: str, req: Request = None):
     require_session(req)
     return Response(status_code=200)
 
+def cleanup_old_messages(drop_id: str, keep_count: int = 20):
+    """Keep only the most recent N messages for a drop."""
+    with engine.begin() as conn:
+        # Get the seq threshold
+        threshold_row = conn.execute(text("""
+            select seq from (
+                select seq from messages 
+                where drop_id = :d 
+                order by seq desc 
+                limit :n
+            ) 
+            order by seq asc 
+            limit 1
+        """), {"d": drop_id, "n": keep_count}).mappings().first()
+        
+        if not threshold_row:
+            return 0
+        
+        threshold_seq = threshold_row["seq"]
+        
+        # Get blob_ids to delete files
+        old_blobs = conn.execute(text("""
+            select blob_id from messages 
+            where drop_id = :d and seq < :threshold and blob_id is not null
+        """), {"d": drop_id, "threshold": threshold_seq}).fetchall()
+        
+        # Delete old messages
+        result = conn.execute(text("""
+            delete from messages 
+            where drop_id = :d and seq < :threshold
+        """), {"d": drop_id, "threshold": threshold_seq})
+        
+        # Delete blob files
+        for row in old_blobs:
+            blob_id = row[0]
+            if blob_id:
+                blob_path = BLOB_DIR / blob_id
+                try:
+                    if blob_path.exists():
+                        blob_path.unlink()
+                except Exception:
+                    pass
+        
+        return result.rowcount
+
 @app.post("/api/chat/{drop_id}")
 async def post_message(drop_id: str,
                        text_: Optional[str] = Form(default=None),
@@ -375,6 +420,9 @@ async def post_message(drop_id: str,
         """), {"id": msg_id, "d": drop_id, "seq": next_seq, "ts": ts, "ca": now_ms, "ua": now_ms,
                 "u": user, "cid": None, "mt": message_type, "tx": text_, "b": blob_id, "m": mime, "rx": "{}",
                 "gurl": gif_url, "iurl": image_url, "ithumb": image_thumb})
+
+    # Cleanup old messages (keep only 20 most recent)
+    cleanup_old_messages(drop_id, keep_count=20)
 
     # Update streak and broadcast if changed
     user_normalized = (user or "").strip() or "E"
@@ -944,6 +992,9 @@ async def ws_endpoint(ws: WebSocket):
                         "mt": "text", "tx": text_val, "rx": "{}"
                     })
                 
+                # Cleanup old messages (keep only 20 most recent)
+                cleanup_old_messages(drop, keep_count=20)
+                
                 # Update streak and broadcast if changed
                 user_normalized = (msg_user or "").strip() or "E"
                 streak_result = update_streak_on_message(drop, user_normalized)
@@ -1033,6 +1084,9 @@ async def ws_endpoint(ws: WebSocket):
                         "mt": "gif", "tx": f"[GIF: {title}]", "rx": "{}",
                         "gurl": gif_url, "gprev": gif_preview, "gw": gif_width, "gh": gif_height
                     })
+                
+                # Cleanup old messages (keep only 20 most recent)
+                cleanup_old_messages(drop, keep_count=20)
                 
                 # Update streak and broadcast if changed
                 user_normalized = (msg_user or "").strip() or "E"
