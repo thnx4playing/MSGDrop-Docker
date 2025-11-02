@@ -595,9 +595,12 @@ def get_or_create_streak_record(drop_id: str):
 
 def update_streak_on_message(drop_id: str, user: str) -> Dict[str, Any]:
     """
-    Update streak when a message is posted.
-    Simple logic: Both M and E must post at least once per day (EST timezone).
-    Returns the updated streak data and whether it changed.
+    SIMPLIFIED streak logic:
+    - Both users must post at least once per day (EST timezone)
+    - Streak increments when both post on consecutive days
+    - Streak resets to 0 if a day is missed
+    
+    Returns: {"streak": int, "changed": bool, "last_m_post": str, "last_e_post": str}
     """
     import datetime as _dt
     
@@ -605,119 +608,112 @@ def update_streak_on_message(drop_id: str, user: str) -> Dict[str, Any]:
     yesterday = (_dt.datetime.now(NY_TZ).date() - _dt.timedelta(days=1)).strftime("%Y-%m-%d")
     now_ts = int(time.time() * 1000)
     
-    logger.info(f"[STREAK] update_streak_on_message: drop={drop_id}, user={user}, today={today}")
+    logger.info(f"[STREAK] Message from {user} on {today}")
     
     with engine.begin() as conn:
-        # Get current streak record
+        # Get or create streak record
         streak_row = conn.execute(text(
             "select * from streaks where drop_id=:d"
         ), {"d": drop_id}).mappings().first()
         
-        # Initialize variables
-        old_streak = 0
-        old_m_post = None
-        old_e_post = None
-        old_update_date = None
+        if not streak_row:
+            # First time - create record with user's post
+            logger.info(f"[STREAK] Creating new record")
+            new_m_post = today if user == "M" else None
+            new_e_post = today if user == "E" else None
+            
+            conn.execute(text("""
+                insert into streaks (drop_id, current_streak, last_m_post, last_e_post, last_update_date, updated_at)
+                values (:drop_id, 0, :m_post, :e_post, :update_date, :ts)
+            """), {
+                "drop_id": drop_id,
+                "m_post": new_m_post,
+                "e_post": new_e_post,
+                "update_date": today,
+                "ts": now_ts
+            })
+            
+            return {"streak": 0, "changed": False, "last_m_post": new_m_post, "last_e_post": new_e_post}
         
-        if streak_row:
-            streak_dict = dict(streak_row)
-            old_streak = streak_dict.get("current_streak", 0)
-            old_m_post = streak_dict.get("last_m_post")
-            old_e_post = streak_dict.get("last_e_post")
-            old_update_date = streak_dict.get("last_update_date")
+        # Load current state
+        old_streak = streak_row["current_streak"]
+        old_m_post = streak_row["last_m_post"]
+        old_e_post = streak_row["last_e_post"]
+        old_update_date = streak_row["last_update_date"]
         
-        logger.info(f"[STREAK] Current state: streak={old_streak}, m_post={old_m_post}, e_post={old_e_post}, update_date={old_update_date}")
+        logger.info(f"[STREAK] Old state: streak={old_streak}, M={old_m_post}, E={old_e_post}, last_update={old_update_date}")
         
-        # Update post dates
+        # Update post dates for today
         new_m_post = today if user == "M" else old_m_post
         new_e_post = today if user == "E" else old_e_post
         
-        # Determine new streak value
-        new_streak = old_streak
-        new_update_date = old_update_date or today
-        
-        # Check if both users have posted today
+        # Check if BOTH users have posted today
         both_posted_today = (new_m_post == today and new_e_post == today)
         
-        logger.info(f"[STREAK] After update: m_post={new_m_post}, e_post={new_e_post}, both_posted_today={both_posted_today}")
+        # Check if BOTH users posted yesterday
+        both_posted_yesterday = (old_m_post == yesterday and old_e_post == yesterday)
         
-        # Logic for streak calculation
+        logger.info(f"[STREAK] New posts: M={new_m_post}, E={new_e_post}")
+        logger.info(f"[STREAK] Both posted today: {both_posted_today}, Both posted yesterday: {both_posted_yesterday}")
+        
+        # Calculate new streak
+        new_streak = old_streak
+        new_update_date = old_update_date
+        changed = False
+        
         if both_posted_today:
-            # Both users posted today!
+            # Both users have posted today!
             
-            if old_update_date == today:
-                # Already processed today - but check if we need to increment from 0 to 1
-                if old_streak == 0:
-                    # Special case: both posted today for the first time
-                    new_streak = 1
-                    logger.info(f"[STREAK] First time both posted today: 0 -> 1")
-                else:
-                    # Already counted and streak > 0, no change
-                    logger.info(f"[STREAK] Already counted today, no change")
-            
-            elif old_update_date == yesterday:
-                # Both posted yesterday AND both posted today - increment!
-                if old_m_post == yesterday and old_e_post == yesterday:
+            # Only increment if we haven't already processed today
+            if old_update_date != today:
+                # This is a NEW completion for today
+                
+                if both_posted_yesterday:
+                    # Continue streak: both posted yesterday AND both posted today
                     new_streak = old_streak + 1
-                    new_update_date = today
-                    logger.info(f"[STREAK] Continuing streak from yesterday: {old_streak} -> {new_streak}")
+                    changed = True
+                    logger.info(f"[STREAK] ✅ Continuing streak: {old_streak} → {new_streak}")
                 else:
-                    # Yesterday wasn't complete, start fresh
+                    # Start new streak: didn't both post yesterday, but both posted today
                     new_streak = 1
-                    new_update_date = today
-                    logger.info(f"[STREAK] Yesterday incomplete, starting new: {old_streak} -> {new_streak}")
-            
-            else:
-                # Either first time ever, or missed a day - start new streak at 1
-                new_streak = 1
+                    changed = True
+                    logger.info(f"[STREAK] ✅ Starting new streak: {old_streak} → 1")
+                
                 new_update_date = today
-                logger.info(f"[STREAK] Starting new streak (missed days or first time): {old_streak} -> {new_streak}")
+            else:
+                # Already processed today - no change
+                logger.info(f"[STREAK] ⏸️  Already processed today, streak stays at {old_streak}")
         else:
-            # Only one user has posted today so far
-            # Check if we need to reset due to missing yesterday
+            # Only one user has posted so far today
+            # Check if we need to reset due to missing days
             if old_update_date and old_update_date not in [today, yesterday]:
-                # Missed at least one day - reset to 0
+                # Missed a day - reset streak
                 if old_streak > 0:
                     new_streak = 0
-                    logger.info(f"[STREAK] Missed days, resetting: {old_streak} -> 0")
+                    changed = True
+                    logger.info(f"[STREAK] ❌ Missed days, resetting: {old_streak} → 0")
             else:
-                # Keep current streak, waiting for other user
-                logger.info(f"[STREAK] Waiting for other user, keeping streak at {old_streak}")
+                # Waiting for other user
+                logger.info(f"[STREAK] ⏳ Waiting for other user, streak stays at {old_streak}")
         
-        # Upsert the record
-        if not streak_row:
-            logger.info(f"[STREAK] Creating new record: streak={new_streak}")
-            conn.execute(text("""
-                insert into streaks (drop_id, current_streak, last_m_post, last_e_post, last_update_date, updated_at)
-                values (:drop_id, :streak, :m_post, :e_post, :update_date, :ts)
-            """), {
-                "drop_id": drop_id,
-                "streak": new_streak,
-                "m_post": new_m_post,
-                "e_post": new_e_post,
-                "update_date": new_update_date,
-                "ts": now_ts
-            })
-        else:
-            logger.info(f"[STREAK] Updating record: streak={new_streak}")
-            conn.execute(text("""
-                update streaks 
-                set current_streak = :streak,
-                    last_m_post = :m_post,
-                    last_e_post = :e_post,
-                    last_update_date = :update_date,
-                    updated_at = :ts
-                where drop_id = :drop_id
-            """), {
-                "streak": new_streak,
-                "m_post": new_m_post,
-                "e_post": new_e_post,
-                "update_date": new_update_date,
-                "ts": now_ts,
-                "drop_id": drop_id
-            })
+        # Update database
+        conn.execute(text("""
+            update streaks 
+            set current_streak = :streak,
+                last_m_post = :m_post,
+                last_e_post = :e_post,
+                last_update_date = :update_date,
+                updated_at = :ts
+            where drop_id = :drop_id
+        """), {
+            "streak": new_streak,
+            "m_post": new_m_post,
+            "e_post": new_e_post,
+            "update_date": new_update_date,
+            "ts": now_ts,
+            "drop_id": drop_id
+        })
         
-        changed = (new_streak != old_streak)
         logger.info(f"[STREAK] Final: streak={new_streak}, changed={changed}")
         
         return {
@@ -728,7 +724,7 @@ def update_streak_on_message(drop_id: str, user: str) -> Dict[str, Any]:
         }
 
 def get_streak(drop_id: str) -> Dict[str, Any]:
-    """Get current streak data"""
+    """Get current streak data - SIMPLIFIED"""
     import datetime as _dt
     
     today = _dt.datetime.now(NY_TZ).date().strftime("%Y-%m-%d")
@@ -747,23 +743,21 @@ def get_streak(drop_id: str) -> Dict[str, Any]:
                 "ePostedToday": False
             }
         
-        streak = dict(streak_row)
-        last_m_post = streak.get("last_m_post")
-        last_e_post = streak.get("last_e_post")
+        last_m_post = streak_row["last_m_post"]
+        last_e_post = streak_row["last_e_post"]
+        last_update_date = streak_row["last_update_date"]
+        current_streak = streak_row["current_streak"]
         
-        # Check if we need to reset the streak due to missed day
-        last_update_date = streak.get("last_update_date")
-        current_streak = streak.get("current_streak", 0)
-        
-        # If last update wasn't yesterday or today, streak should be 0
+        # Auto-reset if we missed a day
         if last_update_date and last_update_date not in [today, yesterday]:
-            current_streak = 0
-            # Update the database to reflect reset
-            conn.execute(text("""
-                update streaks 
-                set current_streak = 0
-                where drop_id = :drop_id
-            """), {"drop_id": drop_id})
+            if current_streak > 0:
+                logger.info(f"[STREAK] Auto-reset detected in get_streak")
+                current_streak = 0
+                conn.execute(text("""
+                    update streaks 
+                    set current_streak = 0
+                    where drop_id = :drop_id
+                """), {"drop_id": drop_id})
         
         return {
             "streak": current_streak,
