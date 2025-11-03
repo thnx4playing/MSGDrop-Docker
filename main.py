@@ -668,7 +668,7 @@ def update_streak_on_message(drop_id: str, user: str) -> Dict[str, Any]:
             if old_update_date != today:
                 # This is a NEW completion for today
                 
-                if both_posted_yesterday:
+                if old_update_date == yesterday:
                     # Continue streak: both posted yesterday AND both posted today
                     new_streak = old_streak + 1
                     changed = True
