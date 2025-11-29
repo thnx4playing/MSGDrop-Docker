@@ -713,6 +713,7 @@ def get_streak(drop_id: str) -> Dict[str, Any]:
             # We'll return broke info but NOT update DB here (let message trigger that)
             broke_streak = True
             previous_streak = current_streak
+            logger.info(f"[STREAK] GET detected stale streak: {current_streak} days, last_completed={last_completed}, returning broke=True")
             # Note: We return the broken state but don't persist until next message
         
         return {
