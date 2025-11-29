@@ -292,6 +292,79 @@ body.no-scroll{
   animation:streak-celebrate 1s ease-in-out;
 }
 
+/* Streak broken animation */
+@keyframes streak-broken {
+  0% {
+    transform: scale(1);
+    filter: grayscale(0) brightness(1);
+  }
+  10% {
+    transform: scale(1.2) rotate(-5deg);
+    filter: grayscale(0) brightness(1.2);
+  }
+  20% {
+    transform: scale(0.9) rotate(5deg);
+    filter: grayscale(0.3) brightness(0.9);
+  }
+  30% {
+    transform: scale(1.1) rotate(-3deg);
+    filter: grayscale(0.5) brightness(0.8);
+  }
+  50% {
+    transform: scale(0.85);
+    filter: grayscale(0.8) brightness(0.6);
+  }
+  70% {
+    transform: scale(0.9);
+    filter: grayscale(1) brightness(0.5);
+  }
+  100% {
+    transform: scale(1);
+    filter: grayscale(0) brightness(1);
+  }
+}
+
+@keyframes streak-shake {
+  0%, 100% { transform: translateX(0); }
+  10%, 30%, 50%, 70%, 90% { transform: translateX(-4px); }
+  20%, 40%, 60%, 80% { transform: translateX(4px); }
+}
+
+#streakDisplay.streak-broken {
+  animation: streak-broken 1.5s ease-out forwards, streak-shake 0.5s ease-in-out;
+}
+
+#streakDisplay.streak-broken .streak-flame {
+  animation: none;
+  filter: grayscale(1);
+}
+
+/* Temporary red border flash on broken */
+#streakDisplay.streak-broken::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 14px;
+  border: 2px solid rgba(239, 68, 68, 0.8);
+  animation: broken-border-fade 1.5s ease-out forwards;
+  pointer-events: none;
+}
+
+@keyframes broken-border-fade {
+  0% {
+    opacity: 1;
+    border-color: rgba(239, 68, 68, 1);
+  }
+  50% {
+    opacity: 0.6;
+    border-color: rgba(239, 68, 68, 0.6);
+  }
+  100% {
+    opacity: 0;
+    border-color: rgba(239, 68, 68, 0);
+  }
+}
+
 /* Streak Display - Fixed positioning */
 #streakDisplay {
   display: inline-flex;

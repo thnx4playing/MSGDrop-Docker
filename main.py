@@ -319,7 +319,7 @@ def head_messages(drop_id: str, req: Request = None):
     require_session(req)
     return Response(status_code=200)
 
-def cleanup_old_messages(drop_id: str, keep_count: int = 20):
+def cleanup_old_messages(drop_id: str, keep_count: int = 30):
     """Keep only the most recent N messages for a drop."""
     with engine.begin() as conn:
         # Get the seq threshold
@@ -431,8 +431,8 @@ async def post_message(drop_id: str,
                 "u": user, "cid": None, "mt": message_type, "tx": text_, "b": blob_id, "m": mime, "rx": "{}",
                 "gurl": gif_url, "gprev": gif_preview, "gw": gif_width, "gh": gif_height, "iurl": image_url, "ithumb": image_thumb})
 
-    # Cleanup old messages (keep only 20 most recent)
-    cleanup_old_messages(drop_id, keep_count=20)
+    # Cleanup old messages (keep only 30 most recent)
+    cleanup_old_messages(drop_id, keep_count=30)
 
     # Update streak and broadcast if changed
     user_normalized = (user or "").strip() or "E"
@@ -996,8 +996,8 @@ async def ws_endpoint(ws: WebSocket):
                         "mt": "text", "tx": text_val, "rx": "{}"
                     })
                 
-                # Cleanup old messages (keep only 20 most recent)
-                cleanup_old_messages(drop, keep_count=20)
+                # Cleanup old messages (keep only 30 most recent)
+                cleanup_old_messages(drop, keep_count=30)
                 
                 # Update streak and broadcast if changed
                 user_normalized = (msg_user or "").strip() or "E"
@@ -1089,8 +1089,8 @@ async def ws_endpoint(ws: WebSocket):
                         "gurl": gif_url, "gprev": gif_preview, "gw": gif_width, "gh": gif_height
                     })
                 
-                # Cleanup old messages (keep only 20 most recent)
-                cleanup_old_messages(drop, keep_count=20)
+                # Cleanup old messages (keep only 30 most recent)
+                cleanup_old_messages(drop, keep_count=30)
                 
                 # Update streak and broadcast if changed
                 user_normalized = (msg_user or "").strip() or "E"

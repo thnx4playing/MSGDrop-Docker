@@ -24,6 +24,7 @@ var Streak = {
 
   updateData: function(data){
     var oldStreak = this.currentStreak;
+    var wasBothPostedToday = this.bothPostedToday;
     
     this.currentStreak = data.streak || 0;
     this.bothPostedToday = data.bothPostedToday || false;
@@ -32,9 +33,14 @@ var Streak = {
     
     this.render();
     
-    // Show celebration ONLY if streak increased from non-zero
-    // (prevents animation on page load when going from 0 to existing streak)
-    if(this.currentStreak > oldStreak && oldStreak > 0){
+    // Streak BROKE - went from positive to 0
+    if(this.currentStreak === 0 && oldStreak > 0){
+      this.showBroken(oldStreak);
+      return;
+    }
+    
+    // Streak INCREASED - show celebration (including 0 → 1)
+    if(this.currentStreak > oldStreak){
       this.celebrate();
     }
   },
@@ -72,7 +78,7 @@ var Streak = {
     }
     
     // Remove all animation classes
-    display.classList.remove('streak-celebrate', 'streak-complete', 'streak-bounce');
+    display.classList.remove('streak-celebrate', 'streak-complete', 'streak-bounce', 'streak-broken');
     
     // Force reflow to restart animation
     void display.offsetWidth;
@@ -84,6 +90,33 @@ var Streak = {
     this.celebrateTimeout = setTimeout(function(){
       display.classList.remove('streak-celebrate');
     }, 1000);
+  },
+
+  showBroken: function(lostStreak){
+    var display = document.getElementById('streakDisplay');
+    if(!display) return;
+    
+    // Clear any existing timeout
+    if(this.brokenTimeout){
+      clearTimeout(this.brokenTimeout);
+    }
+    
+    // Remove all animation classes
+    display.classList.remove('streak-celebrate', 'streak-complete', 'streak-bounce', 'streak-broken');
+    
+    // Force reflow to restart animation
+    void display.offsetWidth;
+    
+    // Add broken animation
+    display.classList.add('streak-broken');
+    
+    // Show a brief message (optional - can be removed if you just want the visual effect)
+    console.log('[Streak] 💔 Streak broken! Lost ' + lostStreak + ' day streak');
+    
+    // Remove animation class after it completes
+    this.brokenTimeout = setTimeout(function(){
+      display.classList.remove('streak-broken');
+    }, 1500);
   },
 
   // Refresh streak data (throttled to once per 5 seconds)
