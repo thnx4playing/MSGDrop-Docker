@@ -401,8 +401,8 @@ body.no-scroll{
   50% { box-shadow: 0 0 30px rgba(255, 215, 0, 0.8); }
 }
 
-/* Force reset after animation ends */
-#streakDisplay:not(.streak-celebrate) {
+/* Force reset after animation ends - but allow broken animation */
+#streakDisplay:not(.streak-celebrate):not(.streak-broken) {
   transform: scale(1) rotate(0deg);
   animation: none;
 }

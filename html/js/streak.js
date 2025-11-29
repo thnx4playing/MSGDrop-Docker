@@ -5,6 +5,65 @@ var Streak = {
   mPostedToday: false,
   ePostedToday: false,
   lastFetchTime: 0,
+  hasShownBrokenAnimation: false,
+
+  // Get the storage key for the current drop
+  getStorageKey: function(){
+    var dropId = 'default';
+    try {
+      dropId = new URL(window.location.href).searchParams.get('drop') || 'default';
+    } catch(e){}
+    return 'streak_last_' + dropId;
+  },
+
+  // Get last known streak from localStorage
+  getLastKnownStreak: function(){
+    try {
+      var stored = localStorage.getItem(this.getStorageKey());
+      if(stored){
+        var data = JSON.parse(stored);
+        return data.streak || 0;
+      }
+    } catch(e){
+      console.warn('[Streak] Failed to read localStorage:', e);
+    }
+    return 0;
+  },
+
+  // Save current streak to localStorage
+  saveStreak: function(){
+    try {
+      localStorage.setItem(this.getStorageKey(), JSON.stringify({
+        streak: this.currentStreak,
+        timestamp: Date.now()
+      }));
+    } catch(e){
+      console.warn('[Streak] Failed to save to localStorage:', e);
+    }
+  },
+
+  // Clear the "shown broken" flag (call this after animation plays)
+  clearBrokenFlag: function(){
+    try {
+      localStorage.removeItem(this.getStorageKey() + '_broken_shown');
+    } catch(e){}
+  },
+
+  // Check if we already showed the broken animation for this reset
+  hasBrokenBeenShown: function(){
+    try {
+      return localStorage.getItem(this.getStorageKey() + '_broken_shown') === 'true';
+    } catch(e){
+      return false;
+    }
+  },
+
+  // Mark that we showed the broken animation
+  markBrokenShown: function(){
+    try {
+      localStorage.setItem(this.getStorageKey() + '_broken_shown', 'true');
+    } catch(e){}
+  },
 
   fetch: async function(dropId){
     try {
@@ -15,34 +74,52 @@ var Streak = {
         return;
       }
       
-      this.updateData(data);
+      this.updateData(data, true); // true = this is initial fetch
       this.lastFetchTime = Date.now();
     } catch(e){
       console.error('[Streak] Fetch error:', e);
     }
   },
 
-  updateData: function(data){
+  updateData: function(data, isInitialFetch){
+    var lastKnownStreak = this.getLastKnownStreak();
     var oldStreak = this.currentStreak;
-    var wasBothPostedToday = this.bothPostedToday;
+    
+    // Use last known streak for comparison on initial fetch
+    var compareStreak = isInitialFetch ? lastKnownStreak : oldStreak;
     
     this.currentStreak = data.streak || 0;
     this.bothPostedToday = data.bothPostedToday || false;
     this.mPostedToday = data.mPostedToday || false;
     this.ePostedToday = data.ePostedToday || false;
     
+    console.log('[Streak] Update - Last known:', lastKnownStreak, 'Old:', oldStreak, 'New:', this.currentStreak, 'Initial:', isInitialFetch);
+    
     this.render();
     
-    // Streak BROKE - went from positive to 0
-    if(this.currentStreak === 0 && oldStreak > 0){
-      this.showBroken(oldStreak);
+    // Streak BROKE - compare against last known (for login) or old (for live updates)
+    if(this.currentStreak === 0 && compareStreak > 0){
+      // Only show broken animation once per reset
+      if(!this.hasBrokenBeenShown()){
+        this.showBroken(compareStreak);
+        this.markBrokenShown();
+      } else {
+        console.log('[Streak] Broken animation already shown for this reset');
+      }
+      // Save the new (0) streak
+      this.saveStreak();
       return;
     }
     
-    // Streak INCREASED - show celebration (including 0 → 1)
-    if(this.currentStreak > oldStreak){
+    // Streak INCREASED - show celebration
+    if(this.currentStreak > compareStreak){
       this.celebrate();
+      // Clear the broken flag since we have a new streak
+      this.clearBrokenFlag();
     }
+    
+    // Save current streak
+    this.saveStreak();
   },
 
   render: function(){
@@ -65,7 +142,7 @@ var Streak = {
 
   handleWebSocketUpdate: function(data){
     console.log('[Streak] WebSocket update:', data);
-    this.updateData(data);
+    this.updateData(data, false); // false = not initial fetch
   },
 
   celebrate: function(){
@@ -85,6 +162,8 @@ var Streak = {
     
     // Add celebration animation
     display.classList.add('streak-celebrate');
+    
+    console.log('[Streak] 🎉 Celebrating! Streak increased to', this.currentStreak);
     
     // Remove after 1 second (animation duration)
     this.celebrateTimeout = setTimeout(function(){
@@ -110,7 +189,6 @@ var Streak = {
     // Add broken animation
     display.classList.add('streak-broken');
     
-    // Show a brief message (optional - can be removed if you just want the visual effect)
     console.log('[Streak] 💔 Streak broken! Lost ' + lostStreak + ' day streak');
     
     // Remove animation class after it completes
