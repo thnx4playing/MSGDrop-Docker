@@ -1,6 +1,6 @@
 // Camera/Webcam viewer for Frigate stream
 var Camera = {
-  streamUrl: 'https://cam.efive.org/api/reolink_e1_zoom',
+  streamUrl: '/api/camera/stream',
   modal: null,
   stream: null,
   loading: null,
