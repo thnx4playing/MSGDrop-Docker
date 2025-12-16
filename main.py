@@ -1,9 +1,8 @@
 import os, json, hmac, hashlib, time, secrets, mimetypes, logging
 from typing import Optional, Dict, Any, List
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form, Request, HTTPException, Response
-from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.responses import RedirectResponse, HTMLResponse
-import httpx
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import create_engine, text
@@ -43,9 +42,6 @@ EDGE_AUTH_TOKEN = _cfg.get("edgeAuthToken", "")  # optional in mono mode
 UNLOCK_CODE_HASH = os.environ.get("UNLOCK_CODE_HASH", "")
 UNLOCK_CODE      = os.environ.get("UNLOCK_CODE", "")
 
-# Camera stream URL for proxying
-CAMERA_STREAM_URL = "https://cam.efive.org/api/reolink_e1_zoom"
-
 # Secret to sign sessions; derive from env or generate stable file-based secret
 SESSION_SIGN_KEY = os.environ.get("SESSION_SIGN_KEY")
 if not SESSION_SIGN_KEY:
@@ -60,6 +56,17 @@ SESSION_SIGN_KEY_BYTES = SESSION_SIGN_KEY.encode("utf-8")
 
 # --- App & DB ---
 app = FastAPI(title="msgdrop-mono")
+
+# Cache-control middleware for static assets
+@app.middleware("http")
+async def add_cache_headers(request: Request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if path.endswith(('.js', '.css', '.html')) or path in ('/', '/msgdrop', '/msgdrop/'):
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+    return response
 engine: Engine = create_engine(f"sqlite:///{DB_PATH}", future=True)
 BLOB_DIR.mkdir(parents=True, exist_ok=True)
 logging.basicConfig(level=logging.INFO)
@@ -749,33 +756,6 @@ def get_blob(blob_id: str, req: Request):
     if not path.exists(): raise HTTPException(404)
     return FileResponse(path)
 
-# --- Camera Stream Proxy ---
-def verify_session(token: str) -> bool:
-    """Verify session token - wrapper for _verify_token"""
-    return _verify_token(token)
-
-@app.get("/api/camera/stream")
-async def camera_stream(request: Request):
-    # Require authentication
-    session_token = request.cookies.get(SESSION_COOKIE)
-    if not session_token or not verify_session(session_token):
-        return Response(status_code=401)
-    
-    async def generate():
-        async with httpx.AsyncClient() as client:
-            try:
-                async with client.stream("GET", CAMERA_STREAM_URL, timeout=30.0) as response:
-                    async for chunk in response.aiter_bytes(chunk_size=4096):
-                        yield chunk
-            except Exception as e:
-                print(f"Camera stream error: {e}")
-                return
-    
-    return StreamingResponse(
-        generate(),
-        media_type="multipart/x-mixed-replace; boundary=frame"
-    )
-
 # --- WebSocket Hub with presence ---
 class Hub:
     def __init__(self):
@@ -1364,4 +1344,3 @@ if __name__ == "__main__":
     else:
         logger.info(f"Starting without SSL on port {port}")
         uvicorn.run(app, host="0.0.0.0", port=port, proxy_headers=True)
-
