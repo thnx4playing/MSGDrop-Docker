@@ -2244,3 +2244,106 @@ html{overscroll-behavior-y:contain}
   background: rgba(220, 38, 38, 0.95);
   color: white;
 }
+
+/* ================== CAMERA MODAL ================== */
+.camera-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  background: var(--overlay);
+  z-index: 10000;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s, visibility 0.3s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  overflow: hidden !important;
+}
+
+.camera-modal.show {
+  opacity: 1;
+  visibility: visible;
+}
+
+.camera-container {
+  background: var(--panel);
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+  width: 100%;
+  max-width: 640px;
+  max-height: 90vh;
+  max-height: 90dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transform: scale(0.9);
+  transition: transform 0.3s;
+  position: relative;
+}
+
+.camera-modal.show .camera-container {
+  transform: scale(1);
+}
+
+.camera-header {
+  padding: 16px 56px 12px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.camera-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.camera-body {
+  position: relative;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+}
+
+#cameraStream {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 70vh;
+  max-height: 70dvh;
+  object-fit: contain;
+}
+
+.camera-loading {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.camera-loading.hidden {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .camera-container {
+    max-width: 95vw;
+    border-radius: 20px;
+  }
+  
+  #cameraStream {
+    max-height: 60vh;
+    max-height: 60dvh;
+  }
+}

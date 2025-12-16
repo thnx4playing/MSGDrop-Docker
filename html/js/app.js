@@ -32,6 +32,11 @@ var App = {
     // ✨ Initialize GIPHY picker BEFORE setting up event listeners
     this.initGiphy();
 
+    // Initialize Camera
+    if(typeof Camera !== 'undefined'){
+      Camera.init();
+    }
+
     // Setup all event listeners
     this.setupEventListeners();
 
@@ -166,6 +171,14 @@ var App = {
       console.warn('GIF button found but GIPHY picker not initialized');
     } else {
       console.warn('GIF button not found in DOM');
+    }
+
+    // Camera button
+    var cameraBtn = document.getElementById('cameraBtn');
+    if(cameraBtn && typeof Camera !== 'undefined'){
+      cameraBtn.addEventListener('click', function(){
+        Camera.show();
+      });
     }
 
     // Library
@@ -325,6 +338,10 @@ var App = {
         if(self.giphyPicker && self.giphyPicker.modal && 
            self.giphyPicker.modal.style.display === 'flex'){
           self.giphyPicker.hide();
+        }
+        // Close Camera modal on ESC
+        if(typeof Camera !== 'undefined' && Camera.isOpen){
+          Camera.hide();
         }
       }
     });
