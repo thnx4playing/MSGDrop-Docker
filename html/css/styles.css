@@ -2347,3 +2347,312 @@ html{overscroll-behavior-y:contain}
     max-height: 60dvh;
   }
 }
+
+/* ================== MESSAGE ACTION BUTTONS (ICONS) ================== */
+/* Replaces the old .edit-btn and .delete-btn text button styles */
+
+.msg-action-btn {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  padding: 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  margin-left: 2px;
+}
+
+.message-group:hover .msg-action-btn {
+  opacity: 1;
+}
+
+/* Always show on touch devices */
+@media (hover: none) {
+  .msg-action-btn {
+    opacity: 0.6;
+  }
+}
+
+.msg-action-btn:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.msg-action-btn:active {
+  transform: scale(0.9);
+}
+
+.msg-action-btn svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
+/* Specific button colors on hover */
+.msg-action-btn.reply-btn:hover {
+  color: var(--accent);
+}
+
+.msg-action-btn.edit-btn:hover {
+  color: var(--accent);
+}
+
+.msg-action-btn.delete-btn:hover {
+  color: var(--danger);
+}
+
+/* ================== DELIVERY/READ RECEIPTS ================== */
+/* iMessage-style receipt indicators */
+
+.meta-receipt {
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: capitalize;
+  margin-left: 4px;
+}
+
+.meta-receipt.receipt-sent {
+  color: var(--muted);
+}
+
+.meta-receipt.receipt-delivered {
+  color: var(--muted);
+}
+
+.meta-receipt.receipt-read {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Meta styling adjustments */
+.meta-time {
+  color: var(--muted);
+}
+
+.meta-edited {
+  font-size: 10px;
+  color: var(--muted);
+  opacity: 0.7;
+  margin-left: 4px;
+}
+
+/* ================== REPLY BUBBLE (iMessage Style) ================== */
+/* Shows the replied-to message above the current message */
+
+.reply-bubble {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: 4px;
+  background: var(--surface);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.reply-bubble:hover {
+  background: var(--field);
+}
+
+.reply-bubble:active {
+  transform: scale(0.98);
+}
+
+.reply-line {
+  width: 3px;
+  background: var(--accent);
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.message-group.left .reply-line {
+  background: var(--muted);
+}
+
+.reply-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.reply-author {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.message-group.left .reply-author {
+  color: var(--text);
+}
+
+.reply-text {
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ================== REPLY PREVIEW IN COMPOSE ================== */
+/* Shows above the text input when replying to a message */
+
+.reply-preview {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border-radius: 12px;
+  margin-bottom: 8px;
+  border-left: 3px solid var(--accent);
+}
+
+.reply-preview.show {
+  display: flex;
+}
+
+.reply-preview-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.reply-preview-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 2px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.reply-preview-label svg {
+  width: 12px;
+  height: 12px;
+}
+
+.reply-preview-user {
+  font-weight: 700;
+}
+
+.reply-preview-text {
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cancel-reply-btn {
+  appearance: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.cancel-reply-btn:hover {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: white;
+}
+
+.cancel-reply-btn svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* ================== HIGHLIGHT FLASH ANIMATION ================== */
+/* When clicking a reply bubble to scroll to the original message */
+
+@keyframes highlightFlash {
+  0% {
+    background-color: transparent;
+  }
+  20% {
+    background-color: rgba(90, 162, 255, 0.3);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.message-group.highlight-flash {
+  animation: highlightFlash 1.5s ease-out;
+}
+
+.message-group.highlight-flash .chat-bubble {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+/* ================== DARK MODE ADJUSTMENTS FOR NEW FEATURES ================== */
+
+[data-theme="dark"] .reply-bubble {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+[data-theme="dark"] .reply-bubble:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .reply-preview {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+[data-theme="dark"] .msg-action-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* ================== MOBILE OPTIMIZATIONS FOR NEW FEATURES ================== */
+
+@media (max-width: 768px) {
+  .msg-action-btn {
+    padding: 6px;
+    opacity: 0.5;
+  }
+  
+  .msg-action-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+  
+  .reply-bubble {
+    padding: 6px 10px;
+  }
+  
+  .reply-text {
+    font-size: 12px;
+  }
+  
+  .meta-receipt {
+    font-size: 9px;
+  }
+}
+
+/* Push action buttons to the end for right-aligned messages */
+.message-group.right .msg-action-btn {
+  order: -1;
+}
+
+/* When in reply mode, show subtle accent border */
+.compose-section.replying {
+  border-top: 2px solid var(--accent);
+}

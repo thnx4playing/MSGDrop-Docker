@@ -19,7 +19,7 @@
 })();
 </script>
 
-<link rel="stylesheet" href="/msgdrop/css/styles.css?v=20241216">
+<link rel="stylesheet" href="/msgdrop/css/styles.css?v=20241218">
 </head>
 <body>
 <div id="appRoot" aria-live="polite">
@@ -70,6 +70,23 @@
 
     <!-- Compose Area -->
     <div id="composeSection" class="compose-section">
+      
+      <!-- Reply Preview -->
+      <div id="replyPreview" class="reply-preview">
+        <div class="reply-preview-content">
+          <div class="reply-preview-label">
+            <svg viewBox="0 0 24 24" width="12" height="12"><path fill="currentColor" d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"/></svg>
+            Replying to <span id="replyPreviewUser" class="reply-preview-user">E</span>
+          </div>
+          <div id="replyPreviewText" class="reply-preview-text">Message preview...</div>
+        </div>
+        <button id="cancelReplyBtn" class="cancel-reply-btn" type="button" aria-label="Cancel reply">
+          <svg viewBox="0 0 24 24" width="12" height="12">
+            <path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+          </svg>
+        </button>
+      </div>
+      
       <div id="editHeader" class="edit-header">
         <span class="edit-header-text">Editing message</span>
         <button id="cancelEditBtn" class="cancel-edit-btn" type="button">Cancel</button>
@@ -230,19 +247,19 @@
 <input id="fileInput" type="file" accept="image/*"/>
 
 <!-- Scripts with cache busting -->
-<script src="/msgdrop/js/config.js?v=20241216"></script>
-<script src="/msgdrop/js/storage.js?v=20241216"></script>
-<script src="/msgdrop/js/cookie-checker.js?v=20241216"></script>
-<script src="/msgdrop/js/api.js?v=20241216"></script>
-<script src="/msgdrop/js/websocket.js?v=20241216"></script>
-<script src="/msgdrop/js/ui.js?v=20241216"></script>
-<script src="/msgdrop/js/messages.js?v=20241216"></script>
-<script src="/msgdrop/js/reactions.js?v=20241216"></script>
-<script src="/msgdrop/js/images.js?v=20241216"></script>
-<script src="/msgdrop/js/streak.js?v=20241216"></script>
-<script src="/msgdrop/js/game.js?v=20241216"></script>
-<script src="/msgdrop/js/giphy.js?v=20241216"></script>
-<script src="/msgdrop/js/camera.js?v=20241216"></script>
-<script src="/msgdrop/js/app.js?v=20241216"></script>
+<script src="/msgdrop/js/config.js?v=20241218"></script>
+<script src="/msgdrop/js/storage.js?v=20241218"></script>
+<script src="/msgdrop/js/cookie-checker.js?v=20241218"></script>
+<script src="/msgdrop/js/api.js?v=20241218"></script>
+<script src="/msgdrop/js/websocket.js?v=20241218"></script>
+<script src="/msgdrop/js/ui.js?v=20241218"></script>
+<script src="/msgdrop/js/messages.js?v=20241218"></script>
+<script src="/msgdrop/js/reactions.js?v=20241218"></script>
+<script src="/msgdrop/js/images.js?v=20241218"></script>
+<script src="/msgdrop/js/streak.js?v=20241218"></script>
+<script src="/msgdrop/js/game.js?v=20241218"></script>
+<script src="/msgdrop/js/giphy.js?v=20241218"></script>
+<script src="/msgdrop/js/camera.js?v=20241218"></script>
+<script src="/msgdrop/js/app.js?v=20241218"></script>
 </body>
 </html>

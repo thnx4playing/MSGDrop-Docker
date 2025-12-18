@@ -45,7 +45,22 @@ var API = {
     return { images: (all && all.images) ? all.images : [] };
   },
 
-  postMessage: async function(dropId, text, prevVersion, user, clientId){
+  postMessage: async function(dropId, text, prevVersion, user, clientId, replyToSeq){
+    // If replyToSeq is provided, use JSON body instead of FormData
+    if(replyToSeq){
+      return await fetch(CONFIG.API_BASE_URL.replace(/\/$/,'') + '/chat/'+dropId, {
+        method:'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          text: text,
+          user: user,
+          replyToSeq: replyToSeq
+        })
+      });
+    }
+    
+    // Original FormData approach for non-reply messages
     var fd = new FormData();
     if(text != null) fd.append('text_', text);
     if(user) fd.append('user', user);

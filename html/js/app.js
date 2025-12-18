@@ -235,6 +235,15 @@ var App = {
       });
     }
 
+    // Cancel reply
+    var cancelReplyBtn = document.getElementById('cancelReplyBtn');
+    if(cancelReplyBtn){
+      cancelReplyBtn.addEventListener('click', function(e){
+        e.preventDefault();
+        Messages.exitReplyMode();
+      });
+    }
+
     // Delete message
     if(UI.els.chatContainer){
       UI.els.chatContainer.addEventListener('click', async function(ev){
@@ -334,6 +343,7 @@ var App = {
         UI.hideThumbModal();
         Reactions.closePicker();
         UI.hideUserRoleModal();
+        Messages.exitReplyMode();  // Cancel reply mode
         // ✨ NEW: Close GIPHY modal on ESC
         if(self.giphyPicker && self.giphyPicker.modal && 
            self.giphyPicker.modal.style.display === 'flex'){
@@ -514,17 +524,21 @@ var App = {
     
     if(UI.els.postBtn) UI.els.postBtn.disabled=true;
     
+    // Get reply context before clearing
+    var replyToSeq = Messages.replyingToSeq;
+    
     try{
-      console.log('Sending message:', text);
+      console.log('Sending message:', text, replyToSeq ? '(reply to ' + replyToSeq + ')' : '');
       
       // Try WebSocket first (faster, real-time)
       if(WebSocketManager.ws && WebSocketManager.ws.readyState === 1){
-        var sent = WebSocketManager.sendMessage(text, this.myRole, this.myClientId);
+        var sent = WebSocketManager.sendMessage(text, this.myRole, this.myClientId, replyToSeq);
         if(sent){
           // Message sent via WebSocket - response will come via onmessage handler
-          // Clear input immediately for better UX
+          // Clear input and reply mode immediately for better UX
           UI.els.reply.value='';
           UI.els.reply.style.height = 'auto';
+          Messages.exitReplyMode();  // Clear reply mode
           
           // Re-enable button
           setTimeout(function(){
@@ -535,7 +549,7 @@ var App = {
       }
       
       // Fallback to HTTP POST if WebSocket unavailable
-      var res = await API.postMessage(this.dropId, text, Messages.currentVersion, this.myRole, this.myClientId);
+      var res = await API.postMessage(this.dropId, text, Messages.currentVersion, this.myRole, this.myClientId, replyToSeq);
       if (!res.ok){ 
         if(res.status === 409){
           var data = await API.fetchDrop(this.dropId);
@@ -549,6 +563,7 @@ var App = {
       
       UI.els.reply.value='';
       UI.els.reply.style.height = 'auto';
+      Messages.exitReplyMode();  // Clear reply mode
       
       // ⚡ OPTIMIZED: Single fetch gets both messages and images
       setTimeout(async function(){ 

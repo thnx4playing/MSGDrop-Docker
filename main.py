@@ -100,9 +100,27 @@ def init_db():
             gif_width integer default 0,
             gif_height integer default 0,
             image_url text,
-            image_thumb text
+            image_thumb text,
+            reply_to_seq integer,
+            delivered_at integer,
+            read_at integer
         );
         """)
+        
+        # Migration: Add new columns if they don't exist (for existing databases)
+        try:
+            conn.exec_driver_sql("ALTER TABLE messages ADD COLUMN reply_to_seq integer")
+        except Exception:
+            pass
+        try:
+            conn.exec_driver_sql("ALTER TABLE messages ADD COLUMN delivered_at integer")
+        except Exception:
+            pass
+        try:
+            conn.exec_driver_sql("ALTER TABLE messages ADD COLUMN read_at integer")
+        except Exception:
+            pass
+        
         conn.exec_driver_sql("""
         create table if not exists sessions(
             id text primary key,
@@ -315,6 +333,10 @@ def list_messages(drop_id: str, limit: int = 200, before: Optional[int] = None, 
             "gifHeight": o.get("gif_height"),
             "imageUrl": o.get("image_url"),
             "imageThumb": o.get("image_thumb"),
+            # Reply and receipt fields
+            "replyToSeq": o.get("reply_to_seq"),
+            "deliveredAt": o.get("delivered_at"),
+            "readAt": o.get("read_at"),
         }
         if o.get("blob_id"):
             msg["img"] = f"/blob/{o['blob_id']}"
@@ -397,6 +419,7 @@ async def post_message(drop_id: str,
     image_url = None
     image_thumb = None
     message_type = "text"
+    reply_to_seq = None
 
     # If JSON body provided (GIF/image URL style)
     ctype = (req.headers.get("content-type") or "").split(";")[0].strip().lower()
@@ -406,6 +429,7 @@ async def post_message(drop_id: str,
         user = body.get("user") or user
         gif_url = body.get("gifUrl")
         image_url = body.get("imageUrl")
+        reply_to_seq = body.get("replyToSeq")
         if gif_url:
             message_type = "gif"
             # Extract GIF metadata
@@ -440,11 +464,12 @@ async def post_message(drop_id: str,
         next_seq = int(row["next"]) if row else 1
         now_ms = ts
         conn.execute(text("""
-          insert into messages(id,drop_id,seq,ts,created_at,updated_at,user,client_id,message_type,text,blob_id,mime,reactions,gif_url,gif_preview,gif_width,gif_height,image_url,image_thumb)
-          values(:id,:d,:seq,:ts,:ca,:ua,:u,:cid,:mt,:tx,:b,:m,:rx,:gurl,:gprev,:gw,:gh,:iurl,:ithumb)
+          insert into messages(id,drop_id,seq,ts,created_at,updated_at,user,client_id,message_type,text,blob_id,mime,reactions,gif_url,gif_preview,gif_width,gif_height,image_url,image_thumb,reply_to_seq,delivered_at)
+          values(:id,:d,:seq,:ts,:ca,:ua,:u,:cid,:mt,:tx,:b,:m,:rx,:gurl,:gprev,:gw,:gh,:iurl,:ithumb,:rts,:del)
         """), {"id": msg_id, "d": drop_id, "seq": next_seq, "ts": ts, "ca": now_ms, "ua": now_ms,
                 "u": user, "cid": None, "mt": message_type, "tx": text_, "b": blob_id, "m": mime, "rx": "{}",
-                "gurl": gif_url, "gprev": gif_preview, "gw": gif_width, "gh": gif_height, "iurl": image_url, "ithumb": image_thumb})
+                "gurl": gif_url, "gprev": gif_preview, "gw": gif_width, "gh": gif_height, "iurl": image_url, "ithumb": image_thumb,
+                "rts": reply_to_seq, "del": now_ms})
 
     # Cleanup old messages (keep only 30 most recent)
     cleanup_old_messages(drop_id, keep_count=30)
@@ -537,6 +562,45 @@ async def react_message(drop_id: str, body: Dict[str, Any] = Body(...), req: Req
                      {"r": json.dumps(rx, separators=(",", ":")), "d": drop_id, "s": seq})
     await hub.broadcast(drop_id, {"type": "update"})
     return list_messages(drop_id, req=req)
+
+@app.post("/api/chat/{drop_id}/read")
+async def mark_messages_read(drop_id: str, body: Dict[str, Any] = Body(...), req: Request = None):
+    """Mark messages as read up to a certain seq number"""
+    require_session(req)
+    up_to_seq = body.get("upToSeq")
+    reader = body.get("reader")  # User who read the messages (E or M)
+    
+    if up_to_seq is None or not reader:
+        raise HTTPException(400, "upToSeq and reader required")
+    
+    now_ms = int(time.time() * 1000)
+    
+    # Only mark messages from the OTHER user as read
+    with engine.begin() as conn:
+        # Mark as read: messages not from the reader, up to the specified seq
+        result = conn.execute(text("""
+            UPDATE messages 
+            SET read_at = :now 
+            WHERE drop_id = :d 
+              AND seq <= :seq 
+              AND user != :reader 
+              AND read_at IS NULL
+        """), {"now": now_ms, "d": drop_id, "seq": up_to_seq, "reader": reader})
+        
+        updated_count = result.rowcount
+    
+    # Broadcast read receipt to all connections
+    if updated_count > 0:
+        await hub.broadcast(drop_id, {
+            "type": "read_receipt",
+            "data": {
+                "upToSeq": up_to_seq,
+                "reader": reader,
+                "readAt": now_ms
+            }
+        })
+    
+    return {"success": True, "updated": updated_count}
 
 @app.delete("/api/chat/{drop_id}/images/{image_id}")
 async def delete_image(drop_id: str, image_id: str, req: Request = None):
@@ -970,11 +1034,40 @@ async def ws_endpoint(ws: WebSocket):
                 await hub.broadcast_to_others(drop, ws, {"type": "presence", "data": presence_payload, "online": hub._online(drop)})
             elif t == "presence_request":
                 await hub.broadcast(drop, {"type": "presence_request", "data": {"ts": int(time.time() * 1000)}})
+            elif t == "read":
+                # Handle read receipt from client
+                up_to_seq = (payload or {}).get("upToSeq")
+                reader = (payload or {}).get("reader") or user
+                
+                if up_to_seq is not None:
+                    now_ms = int(time.time() * 1000)
+                    
+                    with engine.begin() as conn:
+                        # Mark messages from OTHER user as read
+                        conn.execute(text("""
+                            UPDATE messages 
+                            SET read_at = :now 
+                            WHERE drop_id = :d 
+                              AND seq <= :seq 
+                              AND user != :reader 
+                              AND read_at IS NULL
+                        """), {"now": now_ms, "d": drop, "seq": up_to_seq, "reader": reader})
+                    
+                    # Broadcast read receipt
+                    await hub.broadcast(drop, {
+                        "type": "read_receipt",
+                        "data": {
+                            "upToSeq": up_to_seq,
+                            "reader": reader,
+                            "readAt": now_ms
+                        }
+                    })
             elif t == "chat":
                 # Text message via WebSocket
                 text_val = (payload or {}).get("text") or ""
                 msg_user = (payload or {}).get("user") or user
                 client_id = (payload or {}).get("clientId")
+                reply_to_seq = (payload or {}).get("replyToSeq")
                 
                 if not text_val:
                     await ws.send_json({"type": "error", "error": "text required"})
@@ -989,12 +1082,13 @@ async def ws_endpoint(ws: WebSocket):
                     next_seq = int(row["next"]) if row else 1
                     
                     conn.execute(text("""
-                        insert into messages(id,drop_id,seq,ts,created_at,updated_at,user,client_id,message_type,text,reactions)
-                        values(:id,:d,:seq,:ts,:ca,:ua,:u,:cid,:mt,:tx,:rx)
+                        insert into messages(id,drop_id,seq,ts,created_at,updated_at,user,client_id,message_type,text,reactions,reply_to_seq,delivered_at)
+                        values(:id,:d,:seq,:ts,:ca,:ua,:u,:cid,:mt,:tx,:rx,:rts,:del)
                     """), {
                         "id": msg_id, "d": drop, "seq": next_seq, "ts": ts,
                         "ca": ts, "ua": ts, "u": msg_user, "cid": client_id,
-                        "mt": "text", "tx": text_val, "rx": "{}"
+                        "mt": "text", "tx": text_val, "rx": "{}",
+                        "rts": reply_to_seq, "del": ts
                     })
                 
                 # Cleanup old messages (keep only 30 most recent)
@@ -1035,6 +1129,9 @@ async def ws_endpoint(ws: WebSocket):
                         "gifHeight": o.get("gif_height"),
                         "imageUrl": o.get("image_url"),
                         "imageThumb": o.get("image_thumb"),
+                        "replyToSeq": o.get("reply_to_seq"),
+                        "deliveredAt": o.get("delivered_at"),
+                        "readAt": o.get("read_at"),
                     }
                     if o.get("blob_id"):
                         msg["img"] = f"/blob/{o['blob_id']}"
@@ -1128,6 +1225,9 @@ async def ws_endpoint(ws: WebSocket):
                         "gifHeight": o.get("gif_height"),
                         "imageUrl": o.get("image_url"),
                         "imageThumb": o.get("image_thumb"),
+                        "replyToSeq": o.get("reply_to_seq"),
+                        "deliveredAt": o.get("delivered_at"),
+                        "readAt": o.get("read_at"),
                     }
                     if o.get("blob_id"):
                         msg["img"] = f"/blob/{o['blob_id']}"

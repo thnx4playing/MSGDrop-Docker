@@ -132,6 +132,16 @@ var WebSocketManager = {
             if(this.onGameListCallback) this.onGameListCallback(msg.data);
           } else if(msg.type === 'streak' && msg.data){
             if(this.onStreakCallback) this.onStreakCallback(msg.data);
+          } else if(msg.type === 'delivery_receipt' && msg.data){
+            // Handle delivery receipt
+            if(typeof Messages !== 'undefined' && Messages.handleDeliveryReceipt){
+              Messages.handleDeliveryReceipt(msg.data);
+            }
+          } else if(msg.type === 'read_receipt' && msg.data){
+            // Handle read receipt
+            if(typeof Messages !== 'undefined' && Messages.handleReadReceipt){
+              Messages.handleReadReceipt(msg.data);
+            }
           } else if(msg.type === 'error'){
             console.error('[WS] Server error:', msg.message);
             alert('Error: ' + (msg.message || 'Unknown error'));
@@ -284,19 +294,53 @@ var WebSocketManager = {
   },
 
   /**
-   * Send text message via WebSocket
+   * Send read receipt via WebSocket
+   * @param {number} upToSeq - Mark messages as read up to this seq
+   * @param {string} reader - User who read the messages
    */
-  sendMessage: function(text, user, clientId){
+  sendReadReceipt: function(upToSeq, reader){
     if(!this.ws || this.ws.readyState !== 1) return false;
     
     try {
       this.ws.send(JSON.stringify({
-        action: 'chat',
+        action: 'read',
         payload: {
-          text: text,
-          user: user,
-          clientId: clientId
+          upToSeq: upToSeq,
+          reader: reader
         }
+      }));
+      return true;
+    } catch(e){
+      console.error('[WS] Send read receipt failed:', e);
+      return false;
+    }
+  },
+
+  /**
+   * Send text message via WebSocket
+   * @param {string} text - Message text
+   * @param {string} user - User sending the message
+   * @param {string} clientId - Client ID
+   * @param {number} replyToSeq - Optional seq of message being replied to
+   */
+  sendMessage: function(text, user, clientId, replyToSeq){
+    if(!this.ws || this.ws.readyState !== 1) return false;
+    
+    try {
+      var payload = {
+        text: text,
+        user: user,
+        clientId: clientId
+      };
+      
+      // Include replyToSeq if replying
+      if(replyToSeq){
+        payload.replyToSeq = replyToSeq;
+      }
+      
+      this.ws.send(JSON.stringify({
+        action: 'chat',
+        payload: payload
       }));
       return true;
     } catch(e){
