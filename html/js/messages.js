@@ -1,10 +1,5 @@
 // ============================================================================
-// MESSAGES.JS - FIXED Read Receipt Handling
-// ============================================================================
-// KEY FIXES:
-// 1. handleReadReceipt now filters by reader (only updates sender's messages)
-// 2. Added comprehensive logging to trace the read receipt flow
-// 3. Added debouncing to prevent duplicate read receipts
+// MESSAGES.JS - Production Version with Read Receipts
 // ============================================================================
 
 var Messages = {
@@ -14,8 +9,8 @@ var Messages = {
   replyingToSeq: null,
   replyingToMessage: null,
   myRole: null,
-  lastReadReceiptSent: 0,  // Debounce read receipts
-  lastReadReceiptSeq: 0,   // Track last sent seq to avoid duplicates
+  lastReadReceiptSent: 0,
+  lastReadReceiptSeq: 0,
 
   formatMessageTime: function(timestamp){
     if(!timestamp) return '';
@@ -109,8 +104,6 @@ var Messages = {
   applyDrop: function(data){
     if(!data) return;
     
-    console.log('[Messages] applyDrop called, version:', data.version, 'messages:', data.messages ? data.messages.length : 0);
-    
     this.currentVersion = data.version || 0;
     
     if(data.messages && Array.isArray(data.messages)){
@@ -137,8 +130,6 @@ var Messages = {
         };
       });
       this.render();
-      
-      // Send read receipts after rendering
       this.sendReadReceipts();
     }
     
@@ -146,101 +137,57 @@ var Messages = {
   },
 
   sendReadReceipts: function(){
-    if(!this.myRole) {
-      console.log('[ReadReceipt] SKIP: myRole not set');
-      return;
-    }
+    if(!this.myRole) return;
     
-    // Find the highest unread message seq from OTHER user
     var maxUnreadSeq = 0;
-    var unreadCount = 0;
     
     this.history.forEach(function(msg){
-      // Only consider messages from OTHER users that aren't read yet
       if(msg.user && msg.user !== this.myRole && !msg.readAt && msg.seq > maxUnreadSeq){
         maxUnreadSeq = msg.seq;
-        unreadCount++;
       }
     }.bind(this));
     
-    // Debounce: don't send if we just sent for this seq or within 300ms
     var now = Date.now();
     if(maxUnreadSeq === this.lastReadReceiptSeq && now - this.lastReadReceiptSent < 1000) {
-      console.log('[ReadReceipt] SKIP: duplicate (seq=' + maxUnreadSeq + ')');
       return;
     }
     
-    if(maxUnreadSeq > 0){
-      if(!WebSocketManager.ws) {
-        console.log('[ReadReceipt] SKIP: WebSocket is null');
-        return;
-      }
-      if(WebSocketManager.ws.readyState !== 1) {
-        console.log('[ReadReceipt] SKIP: WebSocket not ready (state=' + WebSocketManager.ws.readyState + ')');
-        return;
-      }
-      
+    if(maxUnreadSeq > 0 && WebSocketManager.ws && WebSocketManager.ws.readyState === 1){
       this.lastReadReceiptSent = now;
       this.lastReadReceiptSeq = maxUnreadSeq;
-      
-      console.log('[ReadReceipt] SENDING: upToSeq=' + maxUnreadSeq + ', reader=' + this.myRole + ', unreadCount=' + unreadCount);
       WebSocketManager.sendReadReceipt(maxUnreadSeq, this.myRole);
-    } else {
-      console.log('[ReadReceipt] SKIP: no unread messages from other user');
     }
   },
 
   handleDeliveryReceipt: function(data){
-    console.log('[DeliveryReceipt] Received:', JSON.stringify(data));
     var seq = data.seq;
     var deliveredAt = data.deliveredAt;
     
     var msg = this.findMessageBySeq(seq);
     if(msg){
       msg.deliveredAt = deliveredAt;
-      console.log('[DeliveryReceipt] Updated message seq=' + seq);
       this.render();
-    } else {
-      console.log('[DeliveryReceipt] Message not found: seq=' + seq);
     }
   },
 
   handleReadReceipt: function(data){
-    console.log('[ReadReceipt] RECEIVED:', JSON.stringify(data));
-    
     var upToSeq = data.upToSeq;
     var reader = data.reader;
     var readAt = data.readAt;
     
-    if(!upToSeq || !reader || !readAt) {
-      console.log('[ReadReceipt] ERROR: Invalid data');
-      return;
-    }
+    if(!upToSeq || !reader || !readAt) return;
     
-    var updatedCount = 0;
-    var checkedCount = 0;
+    var updated = false;
     
-    // KEY FIX: Only update messages that are NOT from the reader
-    // (i.e., update the SENDER's messages so they see "Read")
     this.history.forEach(function(msg){
-      checkedCount++;
-      
-      // Only update if:
-      // 1. seq is within range
-      // 2. Message is NOT from the reader (the reader read someone else's messages)
-      // 3. Not already marked as read
       if(msg.seq <= upToSeq && msg.user && msg.user !== reader && !msg.readAt){
         msg.readAt = readAt;
-        updatedCount++;
-        console.log('[ReadReceipt] Marked seq=' + msg.seq + ' from ' + msg.user + ' as READ');
+        updated = true;
       }
     });
     
-    console.log('[ReadReceipt] Checked ' + checkedCount + ' messages, updated ' + updatedCount);
-    
-    if(updatedCount > 0) {
+    if(updated) {
       this.render();
-      console.log('[ReadReceipt] Re-rendered UI');
     }
   },
 
@@ -262,7 +209,6 @@ var Messages = {
       group.className = 'message-group ' + bubbleClass;
       group.setAttribute('data-seq', msg.seq || msg.version);
       
-      // Render reply preview if this message is a reply
       if(msg.replyToSeq){
         var repliedMsg = this.findMessageBySeq(msg.replyToSeq);
         if(repliedMsg){
@@ -309,7 +255,6 @@ var Messages = {
       var bubble = document.createElement('div');
       bubble.className = 'chat-bubble';
       
-      // Image message
       if(msg.messageType === 'image' && msg.imageUrl){
         bubble.classList.add('image-message');
         
@@ -344,7 +289,6 @@ var Messages = {
           bubble.appendChild(caption);
         }
       }
-      // GIF message
       else if(msg.messageType === 'gif' && msg.gifUrl){
         bubble.classList.add('gif-message');
         
@@ -386,11 +330,9 @@ var Messages = {
           bubble.appendChild(caption);
         }
       } else {
-        // Text message
         bubble.textContent = msg.message;
       }
       
-      // Reactions container
       var reactionsContainer = document.createElement('div');
       reactionsContainer.className = 'msg-reactions';
       if(Reactions && Reactions.render){
@@ -400,7 +342,6 @@ var Messages = {
       
       group.appendChild(bubble);
       
-      // Message meta (time, edited, receipts only - no action buttons)
       var meta = document.createElement('div');
       meta.className = 'message-meta';
       
@@ -416,7 +357,6 @@ var Messages = {
         meta.appendChild(editedLabel);
       }
       
-      // Receipt status for own messages
       if(isOwnMessage){
         var receiptStatus = this.getReceiptStatus(msg);
         if(receiptStatus){
@@ -436,7 +376,6 @@ var Messages = {
       
       group.appendChild(meta);
       
-      // Insert before typing indicator
       if(UI.els.typingIndicator){
         UI.els.chatContainer.insertBefore(group, UI.els.typingIndicator);
       } else {
@@ -458,7 +397,6 @@ var Messages = {
     msgEl.addEventListener('click', function(e){
       e.stopPropagation();
       
-      // Don't open picker for these cases
       if(e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
       if(e.target.classList.contains('reaction-chip') || e.target.closest('.reaction-chip')) return;
       if(e.target.closest('.msg-reactions')) return;
@@ -466,7 +404,6 @@ var Messages = {
       if(e.target.closest('.gif-container') || e.target.closest('.image-container')) return;
       if(e.target.closest('.reply-bubble')) return;
       
-      // Open the unified actions modal
       var group = msgEl.closest('.message-group');
       if(group && Reactions && Reactions.openPicker) {
         Reactions.openPicker(msgEl);
@@ -497,9 +434,7 @@ var Messages = {
     var user = data.user;
     var ts = data.ts || Date.now();
     
-    if(!user || user === this.myRole) {
-      return;
-    }
+    if(!user || user === this.myRole) return;
     
     if(WebSocketManager.typingTimeouts.has(user)){
       clearTimeout(WebSocketManager.typingTimeouts.get(user));

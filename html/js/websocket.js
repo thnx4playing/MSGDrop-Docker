@@ -1,5 +1,5 @@
 // ============================================================================
-// WEBSOCKET.JS - FIXED with Comprehensive Logging
+// WEBSOCKET.JS - Production Version with Read Receipt Fix
 // ============================================================================
 
 var WebSocketManager = {
@@ -34,14 +34,14 @@ var WebSocketManager = {
     var sessionToken = this.getCookie('session-ok');
     
     if(!sessionToken) {
-      console.error('[WS] No session token found - user not authenticated');
+      console.error('[WS] No session token found');
       var returnUrl = encodeURIComponent(window.location.pathname + window.location.search);
       window.location.href = '/unlock/?next=' + returnUrl;
       return;
     }
     
     if(sessionToken === 'true') {
-      console.error('[WS] session-ok has old format - need to re-login');
+      console.error('[WS] session-ok has old format');
       var returnUrl = encodeURIComponent(window.location.pathname + window.location.search);
       window.location.href = '/unlock/?next=' + returnUrl;
       return;
@@ -52,13 +52,10 @@ var WebSocketManager = {
       + '&dropId=' + encodeURIComponent(dropId) 
       + '&user=' + encodeURIComponent(userLabel);
     
-    console.log('[WS] Connecting to:', CONFIG.WS_URL, 'as user:', userLabel);
-    
     try {
       this.ws = new WebSocket(url);
       
       this.ws.onopen = function(){
-        console.log('[WS] ✓ Connection established');
         if(UI.setLive) UI.setLive('Connected (Live)');
         
         this.updatePresence(this.userLabel, true);
@@ -79,10 +76,10 @@ var WebSocketManager = {
         }, 200);
         
         // KEY FIX: Send read receipts now that WebSocket is connected
-        // This catches any unread messages that were loaded before WS was ready
+        // This handles the case where page loads, HTTP fetches data, 
+        // but WebSocket wasn't ready yet for the initial sendReadReceipts() call
         setTimeout(function(){
           if(typeof Messages !== 'undefined' && Messages.sendReadReceipts){
-            console.log('[WS] Triggering sendReadReceipts after connection');
             Messages.sendReadReceipts();
           }
         }, 100);
@@ -92,26 +89,15 @@ var WebSocketManager = {
         try {
           var msg = JSON.parse(ev.data || '{}');
           
-          // Special logging for receipt events
-          if(msg.type === 'read_receipt') {
-            console.log('[WS] *** READ_RECEIPT RECEIVED ***', JSON.stringify(msg.data));
-          } else if(msg.type === 'delivery_receipt') {
-            console.log('[WS] *** DELIVERY_RECEIPT RECEIVED ***', JSON.stringify(msg.data));
-          } else {
-            console.log('[WS] Message:', msg.type);
-          }
-          
           if(msg.type === 'update'){
             if(msg.data){
-              console.log('[WS] Update with data, version:', msg.data.version);
               if(this.onUpdateCallback) this.onUpdateCallback(msg.data);
             } else {
-              console.log('[WS] Update without data, fetching via HTTP...');
               if(this.onUpdateCallback && typeof API !== 'undefined'){
                 API.fetchDrop(this.dropId).then(function(data){
                   if(this.onUpdateCallback) this.onUpdateCallback(data);
                 }.bind(this)).catch(function(e){
-                  console.error('[WS] Failed to fetch drop after update:', e);
+                  console.error('[WS] Failed to fetch drop:', e);
                 });
               }
             }
@@ -130,15 +116,10 @@ var WebSocketManager = {
           } else if(msg.type === 'delivery_receipt' && msg.data){
             if(typeof Messages !== 'undefined' && Messages.handleDeliveryReceipt){
               Messages.handleDeliveryReceipt(msg.data);
-            } else {
-              console.error('[WS] Messages.handleDeliveryReceipt not found!');
             }
           } else if(msg.type === 'read_receipt' && msg.data){
             if(typeof Messages !== 'undefined' && Messages.handleReadReceipt){
-              console.log('[WS] Calling Messages.handleReadReceipt...');
               Messages.handleReadReceipt(msg.data);
-            } else {
-              console.error('[WS] Messages.handleReadReceipt not found!');
             }
           } else if(msg.type === 'error'){
             console.error('[WS] Server error:', msg.message);
@@ -150,8 +131,6 @@ var WebSocketManager = {
       }.bind(this);
       
       this.ws.onclose = function(event){
-        console.log('[WS] Connection closed:', event.code, event.reason);
-        
         if(UI.setLive) UI.setLive('Connected (Polling)');
         
         if(this.heartbeatInterval){
@@ -160,10 +139,8 @@ var WebSocketManager = {
         }
         
         if(event.code === 1008 || event.code === 1006){
-          console.warn('[WS] Authentication may have failed - check session');
           var sessionToken = this.getCookie('session-ok');
           if(!sessionToken || sessionToken === 'true'){
-            console.error('[WS] Session lost or invalid - redirecting to login');
             var returnUrl = encodeURIComponent(window.location.pathname + window.location.search);
             window.location.href = '/unlock/?next=' + returnUrl;
           }
@@ -203,28 +180,19 @@ var WebSocketManager = {
   },
 
   sendReadReceipt: function(upToSeq, reader){
-    if(!this.ws) {
-      console.error('[WS] sendReadReceipt FAILED: ws is null');
-      return false;
-    }
-    if(this.ws.readyState !== 1) {
-      console.error('[WS] sendReadReceipt FAILED: ws.readyState=' + this.ws.readyState);
-      return false;
-    }
+    if(!this.ws || this.ws.readyState !== 1) return false;
     
     try {
-      var payload = {
+      this.ws.send(JSON.stringify({
         action: 'read',
         payload: {
           upToSeq: upToSeq,
           reader: reader
         }
-      };
-      console.log('[WS] *** SENDING READ RECEIPT ***', JSON.stringify(payload));
-      this.ws.send(JSON.stringify(payload));
+      }));
       return true;
     } catch(e){
-      console.error('[WS] sendReadReceipt FAILED:', e);
+      console.error('[WS] Send read receipt failed:', e);
       return false;
     }
   },
@@ -345,8 +313,6 @@ var WebSocketManager = {
     var state = data.state;
     var ts = data.ts || Date.now();
     
-    console.log('[WS] Presence:', user, state);
-    
     if(!user) return;
     
     if(this.presenceTimeouts.has(user)){
@@ -386,7 +352,5 @@ var WebSocketManager = {
       }
       this.ws = null;
     }
-    
-    console.log('[WS] Disconnected');
   }
 };
