@@ -3,7 +3,7 @@
 // ============================================================================
 // Features:
 // 1. Emoji reactions row at top
-// 2. Action buttons: Reply, Edit, Delete at bottom
+// 2. Action buttons: View (for media), Reply, Edit, Delete
 // 3. Clean iMessage-inspired design
 // 4. Works on both tap and click
 // ============================================================================
@@ -14,10 +14,8 @@ var Reactions = {
   currentMsg: null,
 
   setup: function(){
-    // Create the unified actions modal if it doesn't exist
     this.createModal();
     
-    // Close modal when clicking outside
     document.addEventListener('click', function(e){
       var modal = document.getElementById('messageActionsModal');
       if(!modal) return;
@@ -25,18 +23,15 @@ var Reactions = {
       this.closePicker();
     }.bind(this));
     
-    // Close on escape
     document.addEventListener('keydown', function(e){
       if(e.key === 'Escape') this.closePicker();
     }.bind(this));
   },
 
   createModal: function(){
-    // Remove old react picker if it exists
     var oldPicker = document.getElementById('reactPicker');
     if(oldPicker) oldPicker.remove();
     
-    // Check if modal already exists
     if(document.getElementById('messageActionsModal')) return;
     
     var modal = document.createElement('div');
@@ -48,6 +43,10 @@ var Reactions = {
         <div class="actions-emoji-row" id="actionsEmojiRow"></div>
         <div class="actions-divider"></div>
         <div class="actions-buttons-row" id="actionsButtonsRow">
+          <button type="button" class="action-btn action-view" data-action="view" id="actionViewBtn" style="display:none;">
+            <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
+            <span>View</span>
+          </button>
           <button type="button" class="action-btn action-reply" data-action="reply">
             <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"/></svg>
             <span>Reply</span>
@@ -85,9 +84,30 @@ var Reactions = {
     }.bind(this));
     
     // Setup action buttons
+    var viewBtn = modal.querySelector('[data-action="view"]');
     var replyBtn = modal.querySelector('[data-action="reply"]');
     var editBtn = modal.querySelector('[data-action="edit"]');
     var deleteBtn = modal.querySelector('[data-action="delete"]');
+    
+    if(viewBtn){
+      viewBtn.addEventListener('click', function(e){
+        e.stopPropagation();
+        if(this.currentMsg){
+          var url = null;
+          if(this.currentMsg.messageType === 'gif'){
+            url = this.currentMsg.gifUrl;
+          } else if(this.currentMsg.messageType === 'image'){
+            url = this.currentMsg.imageUrl || this.currentMsg.imageThumb;
+          }
+          if(url && UI.openLightbox){
+            UI.openLightbox(url + '?t=' + Date.now());
+          } else if(url && UI.showLightbox){
+            UI.showLightbox(url);
+          }
+        }
+        this.closePicker();
+      }.bind(this));
+    }
     
     if(replyBtn){
       replyBtn.addEventListener('click', function(e){
@@ -137,7 +157,17 @@ var Reactions = {
     this.currentSeq = seq;
     this.currentMsg = Messages.findMessageBySeq(seq);
     
-    // Show/hide edit button based on message type
+    // Show/hide View button for GIFs and images
+    var viewBtn = modal.querySelector('#actionViewBtn');
+    if(viewBtn){
+      if(this.currentMsg && (this.currentMsg.messageType === 'gif' || this.currentMsg.messageType === 'image')){
+        viewBtn.style.display = 'flex';
+      } else {
+        viewBtn.style.display = 'none';
+      }
+    }
+    
+    // Show/hide Edit button (hide for GIFs and images)
     var editBtn = modal.querySelector('#actionEditBtn');
     if(editBtn){
       if(this.currentMsg && (this.currentMsg.messageType === 'gif' || this.currentMsg.messageType === 'image')){
@@ -163,23 +193,17 @@ var Reactions = {
     var rect = msgEl.getBoundingClientRect();
     modal.classList.add('show');
     
-    // Use requestAnimationFrame for accurate positioning after render
     requestAnimationFrame(function(){
       var modalWidth = modal.offsetWidth;
       var modalHeight = modal.offsetHeight;
       
-      // Center horizontally relative to the bubble
       var left = rect.left + (rect.width / 2) - (modalWidth / 2);
-      
-      // Position above the bubble by default
       var top = rect.top - modalHeight - 12;
       
-      // If not enough room above, position below
       if(top < 10){
         top = rect.bottom + 12;
       }
       
-      // Keep within screen bounds horizontally
       if(left < 10) left = 10;
       if(left + modalWidth > window.innerWidth - 10){
         left = window.innerWidth - modalWidth - 10;

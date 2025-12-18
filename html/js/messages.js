@@ -260,6 +260,9 @@ var Messages = {
         
         var imageContainer = document.createElement('div');
         imageContainer.className = 'image-container';
+        imageContainer.style.maxWidth = '200px';
+        imageContainer.style.maxHeight = '200px';
+        imageContainer.style.overflow = 'hidden';
         
         var img = document.createElement('img');
         img.src = msg.imageThumb || msg.imageUrl;
@@ -267,15 +270,30 @@ var Messages = {
         img.className = 'image-thumbnail';
         img.loading = 'lazy';
         img.style.width = '200px';
+        img.style.maxWidth = '200px';
         img.style.height = '200px';
+        img.style.maxHeight = '200px';
         img.style.objectFit = 'cover';
         img.style.cursor = 'pointer';
+        img.style.display = 'block';
+        
+        // Scroll to bottom when image loads (fixes partial visibility)
+        img.addEventListener('load', function(){
+          if(UI.els.chatContainer){
+            var atBottom = UI.els.chatContainer.scrollHeight - UI.els.chatContainer.scrollTop <= UI.els.chatContainer.clientHeight + 100;
+            if(atBottom){
+              UI.els.chatContainer.scrollTop = UI.els.chatContainer.scrollHeight;
+            }
+          }
+        });
         
         img.addEventListener('click', function(e){
           e.stopPropagation();
-          var fullUrl = msg.imageUrl || msg.imageThumb;
-          if(fullUrl && UI.openLightbox){
-            UI.openLightbox(fullUrl + '?t=' + Date.now());
+          // Open the actions modal instead of lightbox
+          // Users can view full size from modal if needed
+          var group = bubble.closest('.message-group');
+          if(group && Reactions && Reactions.openPicker){
+            Reactions.openPicker(bubble);
           }
         });
         
@@ -315,8 +333,11 @@ var Messages = {
         
         img.addEventListener('click', function(e){
           e.stopPropagation();
-          if(UI.showLightbox){
-            UI.showLightbox(msg.gifUrl);
+          // Open the actions modal instead of lightbox
+          // Users can view full size from modal if needed
+          var group = bubble.closest('.message-group');
+          if(group && Reactions && Reactions.openPicker){
+            Reactions.openPicker(bubble);
           }
         });
         
@@ -400,9 +421,11 @@ var Messages = {
       if(e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
       if(e.target.classList.contains('reaction-chip') || e.target.closest('.reaction-chip')) return;
       if(e.target.closest('.msg-reactions')) return;
-      if(e.target.classList.contains('gif-image') || e.target.classList.contains('image-thumbnail')) return;
-      if(e.target.closest('.gif-container') || e.target.closest('.image-container')) return;
       if(e.target.closest('.reply-bubble')) return;
+      
+      // For GIFs and images: clicking directly on the image opens lightbox (handled separately)
+      // But clicking elsewhere on the bubble (caption, padding) should open modal
+      // The image click handlers have stopPropagation, so they won't reach here
       
       var group = msgEl.closest('.message-group');
       if(group && Reactions && Reactions.openPicker) {
