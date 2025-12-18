@@ -1039,12 +1039,14 @@ async def ws_endpoint(ws: WebSocket):
                 up_to_seq = (payload or {}).get("upToSeq")
                 reader = (payload or {}).get("reader") or user
                 
+                logger.info(f"[READ] Received: reader={reader}, upToSeq={up_to_seq}, drop={drop}")
+                
                 if up_to_seq is not None:
                     now_ms = int(time.time() * 1000)
                     
                     with engine.begin() as conn:
                         # Mark messages from OTHER user as read
-                        conn.execute(text("""
+                        result = conn.execute(text("""
                             UPDATE messages 
                             SET read_at = :now 
                             WHERE drop_id = :d 
@@ -1052,16 +1054,29 @@ async def ws_endpoint(ws: WebSocket):
                               AND user != :reader 
                               AND read_at IS NULL
                         """), {"now": now_ms, "d": drop, "seq": up_to_seq, "reader": reader})
+                        
+                        rows_updated = result.rowcount
+                        logger.info(f"[READ] Updated {rows_updated} messages in DB")
                     
-                    # Broadcast read receipt
-                    await hub.broadcast(drop, {
+                    # ALWAYS broadcast read receipt (even if 0 rows updated)
+                    # This ensures the sender gets notified
+                    broadcast_data = {
                         "type": "read_receipt",
                         "data": {
                             "upToSeq": up_to_seq,
                             "reader": reader,
                             "readAt": now_ms
                         }
-                    })
+                    }
+                    
+                    num_clients = hub._online(drop)
+                    logger.info(f"[READ] Broadcasting to {num_clients} clients: {broadcast_data}")
+                    
+                    await hub.broadcast(drop, broadcast_data)
+                    
+                    logger.info(f"[READ] Broadcast complete")
+                else:
+                    logger.warning(f"[READ] Skipped: upToSeq is None")
             elif t == "chat":
                 # Text message via WebSocket
                 text_val = (payload or {}).get("text") or ""

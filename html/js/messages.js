@@ -1,10 +1,10 @@
 // ============================================================================
-// MESSAGES.JS - Updated for Unified Actions Modal
+// MESSAGES.JS - FIXED Read Receipt Handling
 // ============================================================================
-// Changes from previous version:
-// - Removed inline action buttons (now in modal)
-// - Kept receipt status display
-// - Kept reply bubble rendering
+// KEY FIXES:
+// 1. handleReadReceipt now filters by reader (only updates sender's messages)
+// 2. Added comprehensive logging to trace the read receipt flow
+// 3. Added debouncing to prevent duplicate read receipts
 // ============================================================================
 
 var Messages = {
@@ -14,6 +14,8 @@ var Messages = {
   replyingToSeq: null,
   replyingToMessage: null,
   myRole: null,
+  lastReadReceiptSent: 0,  // Debounce read receipts
+  lastReadReceiptSeq: 0,   // Track last sent seq to avoid duplicates
 
   formatMessageTime: function(timestamp){
     if(!timestamp) return '';
@@ -107,6 +109,8 @@ var Messages = {
   applyDrop: function(data){
     if(!data) return;
     
+    console.log('[Messages] applyDrop called, version:', data.version, 'messages:', data.messages ? data.messages.length : 0);
+    
     this.currentVersion = data.version || 0;
     
     if(data.messages && Array.isArray(data.messages)){
@@ -134,6 +138,7 @@ var Messages = {
       });
       this.render();
       
+      // Send read receipts after rendering
       this.sendReadReceipts();
     }
     
@@ -141,42 +146,102 @@ var Messages = {
   },
 
   sendReadReceipts: function(){
-    if(!this.myRole) return;
+    if(!this.myRole) {
+      console.log('[ReadReceipt] SKIP: myRole not set');
+      return;
+    }
     
+    // Find the highest unread message seq from OTHER user
     var maxUnreadSeq = 0;
+    var unreadCount = 0;
+    
     this.history.forEach(function(msg){
-      if(msg.user !== this.myRole && !msg.readAt && msg.seq > maxUnreadSeq){
+      // Only consider messages from OTHER users that aren't read yet
+      if(msg.user && msg.user !== this.myRole && !msg.readAt && msg.seq > maxUnreadSeq){
         maxUnreadSeq = msg.seq;
+        unreadCount++;
       }
     }.bind(this));
     
-    if(maxUnreadSeq > 0 && WebSocketManager.ws && WebSocketManager.ws.readyState === 1){
+    // Debounce: don't send if we just sent for this seq or within 300ms
+    var now = Date.now();
+    if(maxUnreadSeq === this.lastReadReceiptSeq && now - this.lastReadReceiptSent < 1000) {
+      console.log('[ReadReceipt] SKIP: duplicate (seq=' + maxUnreadSeq + ')');
+      return;
+    }
+    
+    if(maxUnreadSeq > 0){
+      if(!WebSocketManager.ws) {
+        console.log('[ReadReceipt] SKIP: WebSocket is null');
+        return;
+      }
+      if(WebSocketManager.ws.readyState !== 1) {
+        console.log('[ReadReceipt] SKIP: WebSocket not ready (state=' + WebSocketManager.ws.readyState + ')');
+        return;
+      }
+      
+      this.lastReadReceiptSent = now;
+      this.lastReadReceiptSeq = maxUnreadSeq;
+      
+      console.log('[ReadReceipt] SENDING: upToSeq=' + maxUnreadSeq + ', reader=' + this.myRole + ', unreadCount=' + unreadCount);
       WebSocketManager.sendReadReceipt(maxUnreadSeq, this.myRole);
+    } else {
+      console.log('[ReadReceipt] SKIP: no unread messages from other user');
     }
   },
 
   handleDeliveryReceipt: function(data){
+    console.log('[DeliveryReceipt] Received:', JSON.stringify(data));
     var seq = data.seq;
     var deliveredAt = data.deliveredAt;
     
     var msg = this.findMessageBySeq(seq);
     if(msg){
       msg.deliveredAt = deliveredAt;
+      console.log('[DeliveryReceipt] Updated message seq=' + seq);
       this.render();
+    } else {
+      console.log('[DeliveryReceipt] Message not found: seq=' + seq);
     }
   },
 
   handleReadReceipt: function(data){
+    console.log('[ReadReceipt] RECEIVED:', JSON.stringify(data));
+    
     var upToSeq = data.upToSeq;
+    var reader = data.reader;
     var readAt = data.readAt;
     
+    if(!upToSeq || !reader || !readAt) {
+      console.log('[ReadReceipt] ERROR: Invalid data');
+      return;
+    }
+    
+    var updatedCount = 0;
+    var checkedCount = 0;
+    
+    // KEY FIX: Only update messages that are NOT from the reader
+    // (i.e., update the SENDER's messages so they see "Read")
     this.history.forEach(function(msg){
-      if(msg.seq <= upToSeq && !msg.readAt){
+      checkedCount++;
+      
+      // Only update if:
+      // 1. seq is within range
+      // 2. Message is NOT from the reader (the reader read someone else's messages)
+      // 3. Not already marked as read
+      if(msg.seq <= upToSeq && msg.user && msg.user !== reader && !msg.readAt){
         msg.readAt = readAt;
+        updatedCount++;
+        console.log('[ReadReceipt] Marked seq=' + msg.seq + ' from ' + msg.user + ' as READ');
       }
     });
     
-    this.render();
+    console.log('[ReadReceipt] Checked ' + checkedCount + ' messages, updated ' + updatedCount);
+    
+    if(updatedCount > 0) {
+      this.render();
+      console.log('[ReadReceipt] Re-rendered UI');
+    }
   },
 
   render: function(){

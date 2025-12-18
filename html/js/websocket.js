@@ -1,10 +1,5 @@
 // ============================================================================
-// WEBSOCKET.JS - Complete with Receipt Handlers
-// ============================================================================
-// Changes:
-// - Added sendReadReceipt method
-// - Added delivery_receipt and read_receipt event handlers
-// - Support for replyToSeq in sendMessage
+// WEBSOCKET.JS - FIXED with Comprehensive Logging
 // ============================================================================
 
 var WebSocketManager = {
@@ -57,14 +52,13 @@ var WebSocketManager = {
       + '&dropId=' + encodeURIComponent(dropId) 
       + '&user=' + encodeURIComponent(userLabel);
     
-    console.log('[WS] Connecting to:', CONFIG.WS_URL);
-    console.log('[WS] Using session-ok token for authentication');
+    console.log('[WS] Connecting to:', CONFIG.WS_URL, 'as user:', userLabel);
     
     try {
       this.ws = new WebSocket(url);
       
       this.ws.onopen = function(){
-        console.log('[WS] Connection established');
+        console.log('[WS] ✓ Connection established');
         if(UI.setLive) UI.setLive('Connected (Live)');
         
         this.updatePresence(this.userLabel, true);
@@ -88,12 +82,22 @@ var WebSocketManager = {
       this.ws.onmessage = function(ev){
         try {
           var msg = JSON.parse(ev.data || '{}');
-          console.log('[WS] Received message:', msg.type || msg);
+          
+          // Special logging for receipt events
+          if(msg.type === 'read_receipt') {
+            console.log('[WS] *** READ_RECEIPT RECEIVED ***', JSON.stringify(msg.data));
+          } else if(msg.type === 'delivery_receipt') {
+            console.log('[WS] *** DELIVERY_RECEIPT RECEIVED ***', JSON.stringify(msg.data));
+          } else {
+            console.log('[WS] Message:', msg.type);
+          }
           
           if(msg.type === 'update'){
             if(msg.data){
+              console.log('[WS] Update with data, version:', msg.data.version);
               if(this.onUpdateCallback) this.onUpdateCallback(msg.data);
             } else {
+              console.log('[WS] Update without data, fetching via HTTP...');
               if(this.onUpdateCallback && typeof API !== 'undefined'){
                 API.fetchDrop(this.dropId).then(function(data){
                   if(this.onUpdateCallback) this.onUpdateCallback(data);
@@ -115,16 +119,17 @@ var WebSocketManager = {
           } else if(msg.type === 'streak' && msg.data){
             if(this.onStreakCallback) this.onStreakCallback(msg.data);
           } else if(msg.type === 'delivery_receipt' && msg.data){
-            // Handle delivery receipt - update message status instantly
-            console.log('[WS] Delivery receipt:', msg.data);
             if(typeof Messages !== 'undefined' && Messages.handleDeliveryReceipt){
               Messages.handleDeliveryReceipt(msg.data);
+            } else {
+              console.error('[WS] Messages.handleDeliveryReceipt not found!');
             }
           } else if(msg.type === 'read_receipt' && msg.data){
-            // Handle read receipt - update message status instantly
-            console.log('[WS] Read receipt:', msg.data);
             if(typeof Messages !== 'undefined' && Messages.handleReadReceipt){
+              console.log('[WS] Calling Messages.handleReadReceipt...');
               Messages.handleReadReceipt(msg.data);
+            } else {
+              console.error('[WS] Messages.handleReadReceipt not found!');
             }
           } else if(msg.type === 'error'){
             console.error('[WS] Server error:', msg.message);
@@ -188,22 +193,29 @@ var WebSocketManager = {
     }
   },
 
-  // Send read receipt to mark messages as read
   sendReadReceipt: function(upToSeq, reader){
-    if(!this.ws || this.ws.readyState !== 1) return false;
+    if(!this.ws) {
+      console.error('[WS] sendReadReceipt FAILED: ws is null');
+      return false;
+    }
+    if(this.ws.readyState !== 1) {
+      console.error('[WS] sendReadReceipt FAILED: ws.readyState=' + this.ws.readyState);
+      return false;
+    }
     
     try {
-      console.log('[WS] Sending read receipt:', upToSeq, reader);
-      this.ws.send(JSON.stringify({
+      var payload = {
         action: 'read',
         payload: {
           upToSeq: upToSeq,
           reader: reader
         }
-      }));
+      };
+      console.log('[WS] *** SENDING READ RECEIPT ***', JSON.stringify(payload));
+      this.ws.send(JSON.stringify(payload));
       return true;
     } catch(e){
-      console.error('[WS] Send read receipt failed:', e);
+      console.error('[WS] sendReadReceipt FAILED:', e);
       return false;
     }
   },
@@ -258,7 +270,6 @@ var WebSocketManager = {
     }
   },
 
-  // Send message with optional replyToSeq
   sendMessage: function(text, user, clientId, replyToSeq){
     if(!this.ws || this.ws.readyState !== 1) return false;
     
@@ -325,7 +336,7 @@ var WebSocketManager = {
     var state = data.state;
     var ts = data.ts || Date.now();
     
-    console.log('[WS] Received presence:', user, state, 'My role:', this.userLabel);
+    console.log('[WS] Presence:', user, state);
     
     if(!user) return;
     
