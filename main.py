@@ -1146,15 +1146,12 @@ async def ws_endpoint(ws: WebSocket):
                 
                 full_drop = {"dropId": drop, "version": int(next_seq), "messages": out, "images": images}
                 
-                # Broadcast update to all connections (including sender)
-                await hub.broadcast(drop, {"type": "update"})
+                # Broadcast update WITH FULL DATA to all connections
+                await hub.broadcast(drop, {"type": "update", "data": full_drop})
                 
                 # Notify if E posts, debounced
                 if (msg_user or "").upper() == "E" and _should_notify("msg", drop, 60):
                     notify("E posted a new message")
-                
-                # Also send full data to sender
-                await ws.send_json({"type": "update", "data": full_drop})
             elif t == "gif":
                 # GIF message via WebSocket
                 gif_url = (payload or {}).get("gifUrl")
@@ -1242,15 +1239,12 @@ async def ws_endpoint(ws: WebSocket):
                 
                 full_drop = {"dropId": drop, "version": int(next_seq), "messages": out, "images": images}
                 
-                # Broadcast update to all connections (including sender)
-                await hub.broadcast(drop, {"type": "update"})
+                # Broadcast update WITH FULL DATA to all connections
+                await hub.broadcast(drop, {"type": "update", "data": full_drop})
                 
                 # Notify if E posts, debounced
                 if (msg_user or "").upper() == "E" and _should_notify("gif", drop, 60):
                     notify("E sent a GIF")
-                
-                # Also send full data to sender
-                await ws.send_json({"type": "update", "data": full_drop})
             elif t == "game":
                 # Enhanced game event handling with state management
                 op = (payload or {}).get("op")
