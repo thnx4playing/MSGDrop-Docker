@@ -77,6 +77,15 @@ var WebSocketManager = {
         setTimeout(function(){
           WebSocketManager.requestGameList();
         }, 200);
+        
+        // KEY FIX: Send read receipts now that WebSocket is connected
+        // This catches any unread messages that were loaded before WS was ready
+        setTimeout(function(){
+          if(typeof Messages !== 'undefined' && Messages.sendReadReceipts){
+            console.log('[WS] Triggering sendReadReceipts after connection');
+            Messages.sendReadReceipts();
+          }
+        }, 100);
       }.bind(this);
       
       this.ws.onmessage = function(ev){
