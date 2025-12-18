@@ -1,0 +1,228 @@
+/* ============================================================================
+   MESSAGE ACTIONS MODAL - Unified Reactions + Actions
+   ============================================================================
+   iMessage-inspired design with reactions on top, actions on bottom
+   ============================================================================ */
+
+/* The modal container */
+.message-actions-modal {
+  position: fixed;
+  z-index: 5000;
+  opacity: 0;
+  visibility: hidden;
+  transform: scale(0.9);
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s;
+  pointer-events: none;
+}
+
+.message-actions-modal.show {
+  opacity: 1;
+  visibility: visible;
+  transform: scale(1);
+  pointer-events: auto;
+}
+
+/* The content container */
+.actions-modal-content {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+  min-width: 280px;
+  max-width: 320px;
+}
+
+/* Dark mode adjustments */
+[data-theme="dark"] .actions-modal-content {
+  background: #1c1c1e;
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+/* Emoji reactions row */
+.actions-emoji-row {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  padding: 12px 16px;
+  background: var(--surface);
+}
+
+[data-theme="dark"] .actions-emoji-row {
+  background: #2c2c2e;
+}
+
+.action-emoji-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+  font-size: 24px;
+  line-height: 1;
+  padding: 8px;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.action-emoji-btn:hover {
+  background: rgba(0, 0, 0, 0.08);
+  transform: scale(1.15);
+}
+
+[data-theme="dark"] .action-emoji-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.action-emoji-btn:active {
+  transform: scale(0.95);
+}
+
+/* Highlight active/selected emoji */
+.action-emoji-btn.active {
+  background: rgba(0, 122, 255, 0.15);
+  box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.3);
+}
+
+[data-theme="dark"] .action-emoji-btn.active {
+  background: rgba(0, 122, 255, 0.25);
+}
+
+/* Divider line */
+.actions-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 0;
+}
+
+/* Action buttons row */
+.actions-buttons-row {
+  display: flex;
+  padding: 8px;
+  gap: 4px;
+}
+
+.action-btn {
+  flex: 1;
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 10px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.action-btn svg {
+  width: 20px;
+  height: 20px;
+  opacity: 0.8;
+}
+
+.action-btn span {
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.action-btn:hover {
+  background: var(--surface);
+}
+
+[data-theme="dark"] .action-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.action-btn:active {
+  transform: scale(0.95);
+}
+
+/* Specific action button colors on hover */
+.action-btn.action-reply:hover {
+  color: var(--accent);
+}
+
+.action-btn.action-reply:hover svg {
+  opacity: 1;
+}
+
+.action-btn.action-edit:hover {
+  color: var(--accent);
+}
+
+.action-btn.action-edit:hover svg {
+  opacity: 1;
+}
+
+.action-btn.action-delete:hover {
+  color: var(--danger);
+}
+
+.action-btn.action-delete:hover svg {
+  opacity: 1;
+}
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+  .actions-modal-content {
+    min-width: 260px;
+  }
+  
+  .action-emoji-btn {
+    font-size: 22px;
+    width: 40px;
+    height: 40px;
+    padding: 6px;
+  }
+  
+  .actions-emoji-row {
+    padding: 10px 12px;
+    gap: 2px;
+  }
+  
+  .action-btn {
+    padding: 8px 6px;
+  }
+  
+  .action-btn svg {
+    width: 18px;
+    height: 18px;
+  }
+}
+
+/* ============================================================================
+   HIDE OLD ACTION BUTTONS IN MESSAGE META
+   ============================================================================
+   Since actions are now in the modal, we hide the inline buttons
+   ============================================================================ */
+
+.msg-action-btn {
+  display: none !important;
+}
+
+/* ============================================================================
+   REMOVE OLD REACT PICKER STYLES
+   ============================================================================
+   The old #reactPicker is replaced by .message-actions-modal
+   ============================================================================ */
+
+#reactPicker {
+  display: none !important;
+}
+
+.react-picker {
+  display: none !important;
+}
+

@@ -1,20 +1,18 @@
 // ============================================================================
-// MESSAGES.JS - Message handling with Reply/Receipt support
+// MESSAGES.JS - Updated for Unified Actions Modal
 // ============================================================================
-// Features:
-// 1. Delivery/Read receipt display (iMessage style)
-// 2. Reply-to message preview rendering (iMessage style)
-// 3. Smaller edit/delete icon buttons (pencil and trashcan)
-// 4. Reply mode functionality
+// Changes from previous version:
+// - Removed inline action buttons (now in modal)
+// - Kept receipt status display
+// - Kept reply bubble rendering
 // ============================================================================
 
-// Message handling
 var Messages = {
   history: [],
   currentVersion: 0,
   editingSeq: null,
-  replyingToSeq: null,  // Track which message we're replying to
-  replyingToMessage: null,  // The message content being replied to
+  replyingToSeq: null,
+  replyingToMessage: null,
   myRole: null,
 
   formatMessageTime: function(timestamp){
@@ -34,7 +32,7 @@ var Messages = {
     });
     
     if(msgDay.getTime() === today.getTime()){
-      return timeStr;  // Just show time for today
+      return timeStr;
     } else if(msgDay.getTime() === yesterday.getTime()){
       return 'Yesterday ' + timeStr;
     } else {
@@ -57,9 +55,7 @@ var Messages = {
     return 'left';
   },
 
-  // Get the receipt status for a message
   getReceiptStatus: function(msg){
-    // Only show receipts for messages sent by current user
     if(!this.myRole || msg.user !== this.myRole) return null;
     
     if(msg.readAt){
@@ -71,12 +67,10 @@ var Messages = {
     }
   },
 
-  // Find a message by seq number
   findMessageBySeq: function(seq){
     return this.history.find(function(m){ return m.seq === seq; });
   },
 
-  // Enter reply mode
   enterReplyMode: function(seq){
     var msg = this.findMessageBySeq(seq);
     if(!msg) return;
@@ -84,7 +78,6 @@ var Messages = {
     this.replyingToSeq = seq;
     this.replyingToMessage = msg;
     
-    // Show reply preview UI
     var replyPreview = document.getElementById('replyPreview');
     var replyPreviewText = document.getElementById('replyPreviewText');
     var replyPreviewUser = document.getElementById('replyPreviewUser');
@@ -100,11 +93,9 @@ var Messages = {
       replyPreview.classList.add('show');
     }
     
-    // Focus the input
     if(UI.els.reply) UI.els.reply.focus();
   },
 
-  // Exit reply mode
   exitReplyMode: function(){
     this.replyingToSeq = null;
     this.replyingToMessage = null;
@@ -136,7 +127,6 @@ var Messages = {
           gifHeight: msg.gifHeight || null,
           imageUrl: msg.imageUrl || null,
           imageThumb: msg.imageThumb || null,
-          // Receipt and reply fields
           replyToSeq: msg.replyToSeq || null,
           deliveredAt: msg.deliveredAt || null,
           readAt: msg.readAt || null
@@ -144,18 +134,15 @@ var Messages = {
       });
       this.render();
       
-      // Auto-send read receipts for messages from other user
       this.sendReadReceipts();
     }
     
     if(UI.setLive) UI.setLive('Connected');
   },
 
-  // Send read receipts for unread messages
   sendReadReceipts: function(){
     if(!this.myRole) return;
     
-    // Find the highest seq of unread messages from the other user
     var maxUnreadSeq = 0;
     this.history.forEach(function(msg){
       if(msg.user !== this.myRole && !msg.readAt && msg.seq > maxUnreadSeq){
@@ -163,13 +150,11 @@ var Messages = {
       }
     }.bind(this));
     
-    // Send read receipt via WebSocket
     if(maxUnreadSeq > 0 && WebSocketManager.ws && WebSocketManager.ws.readyState === 1){
       WebSocketManager.sendReadReceipt(maxUnreadSeq, this.myRole);
     }
   },
 
-  // Handle incoming delivery receipt
   handleDeliveryReceipt: function(data){
     var seq = data.seq;
     var deliveredAt = data.deliveredAt;
@@ -181,12 +166,10 @@ var Messages = {
     }
   },
 
-  // Handle incoming read receipt
   handleReadReceipt: function(data){
     var upToSeq = data.upToSeq;
     var readAt = data.readAt;
     
-    // Mark all messages up to this seq as read
     this.history.forEach(function(msg){
       if(msg.seq <= upToSeq && !msg.readAt){
         msg.readAt = readAt;
@@ -199,10 +182,8 @@ var Messages = {
   render: function(){
     if(!UI.els.chatContainer) return;
     
-    // Store scroll position
     var wasAtBottom = UI.els.chatContainer.scrollHeight - UI.els.chatContainer.scrollTop <= UI.els.chatContainer.clientHeight + 50;
     
-    // Clear all messages but keep typing indicator
     var existingMessages = UI.els.chatContainer.querySelectorAll('.message-group');
     existingMessages.forEach(function(el){ el.remove(); });
     
@@ -246,7 +227,6 @@ var Messages = {
           replyBubble.appendChild(replyLine);
           replyBubble.appendChild(replyContent);
           
-          // Make reply bubble clickable to scroll to original
           replyBubble.addEventListener('click', function(e){
             e.stopPropagation();
             var originalGroup = document.querySelector('.message-group[data-seq="' + msg.replyToSeq + '"]');
@@ -264,7 +244,7 @@ var Messages = {
       var bubble = document.createElement('div');
       bubble.className = 'chat-bubble';
       
-      // Check if message is an image
+      // Image message
       if(msg.messageType === 'image' && msg.imageUrl){
         bubble.classList.add('image-message');
         
@@ -276,11 +256,8 @@ var Messages = {
         img.alt = msg.message || 'Image';
         img.className = 'image-thumbnail';
         img.loading = 'lazy';
-        
-        var maxWidth = 200;
-        var maxHeight = 200;
-        img.style.width = maxWidth + 'px';
-        img.style.height = maxHeight + 'px';
+        img.style.width = '200px';
+        img.style.height = '200px';
         img.style.objectFit = 'cover';
         img.style.cursor = 'pointer';
         
@@ -302,7 +279,7 @@ var Messages = {
           bubble.appendChild(caption);
         }
       }
-      // Check if message is a GIF
+      // GIF message
       else if(msg.messageType === 'gif' && msg.gifUrl){
         bubble.classList.add('gif-message');
         
@@ -344,10 +321,11 @@ var Messages = {
           bubble.appendChild(caption);
         }
       } else {
-        // Regular text message
+        // Text message
         bubble.textContent = msg.message;
       }
       
+      // Reactions container
       var reactionsContainer = document.createElement('div');
       reactionsContainer.className = 'msg-reactions';
       if(Reactions && Reactions.render){
@@ -357,6 +335,7 @@ var Messages = {
       
       group.appendChild(bubble);
       
+      // Message meta (time, edited, receipts only - no action buttons)
       var meta = document.createElement('div');
       meta.className = 'message-meta';
       
@@ -372,7 +351,7 @@ var Messages = {
         meta.appendChild(editedLabel);
       }
       
-      // Show receipt status for own messages (iMessage style)
+      // Receipt status for own messages
       if(isOwnMessage){
         var receiptStatus = this.getReceiptStatus(msg);
         if(receiptStatus){
@@ -390,43 +369,6 @@ var Messages = {
         }
       }
       
-      // Reply button (icon)
-      var replyBtn = document.createElement('button');
-      replyBtn.className = 'msg-action-btn reply-btn';
-      replyBtn.type = 'button';
-      replyBtn.setAttribute('data-seq', msg.seq || msg.version);
-      replyBtn.setAttribute('aria-label', 'Reply');
-      replyBtn.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"/></svg>';
-      replyBtn.addEventListener('click', function(e){
-        e.stopPropagation();
-        this.enterReplyMode(msg.seq || msg.version);
-      }.bind(this));
-      meta.appendChild(replyBtn);
-      
-      // Edit button (icon) - only for text messages
-      if(msg.messageType !== 'gif' && msg.messageType !== 'image'){
-        var editBtn = document.createElement('button');
-        editBtn.className = 'msg-action-btn edit-btn';
-        editBtn.type = 'button';
-        editBtn.setAttribute('data-seq', msg.seq || msg.version);
-        editBtn.setAttribute('aria-label', 'Edit');
-        editBtn.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>';
-        editBtn.addEventListener('click', function(e){
-          e.stopPropagation();
-          this.enterEditMode(msg.seq || msg.version, msg.message);
-        }.bind(this));
-        meta.appendChild(editBtn);
-      }
-      
-      // Delete button (icon)
-      var deleteBtn = document.createElement('button');
-      deleteBtn.className = 'msg-action-btn delete-btn';
-      deleteBtn.type = 'button';
-      deleteBtn.setAttribute('data-seq', msg.seq || msg.version);
-      deleteBtn.setAttribute('aria-label', 'Delete');
-      deleteBtn.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>';
-      meta.appendChild(deleteBtn);
-      
       group.appendChild(meta);
       
       // Insert before typing indicator
@@ -439,7 +381,6 @@ var Messages = {
       this.attachMessageClick(bubble);
     }.bind(this));
     
-    // Restore scroll position
     if(wasAtBottom){
       UI.els.chatContainer.scrollTop = UI.els.chatContainer.scrollHeight;
     }
@@ -452,14 +393,15 @@ var Messages = {
     msgEl.addEventListener('click', function(e){
       e.stopPropagation();
       
+      // Don't open picker for these cases
       if(e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
       if(e.target.classList.contains('reaction-chip') || e.target.closest('.reaction-chip')) return;
-      if(e.target.classList.contains('msg-action-btn') || e.target.closest('.msg-action-btn')) return;
       if(e.target.closest('.msg-reactions')) return;
       if(e.target.classList.contains('gif-image') || e.target.classList.contains('image-thumbnail')) return;
       if(e.target.closest('.gif-container') || e.target.closest('.image-container')) return;
       if(e.target.closest('.reply-bubble')) return;
       
+      // Open the unified actions modal
       var group = msgEl.closest('.message-group');
       if(group && Reactions && Reactions.openPicker) {
         Reactions.openPicker(msgEl);
@@ -469,7 +411,7 @@ var Messages = {
 
   enterEditMode: function(seq, currentText){
     this.editingSeq = seq;
-    this.exitReplyMode();  // Exit reply mode if active
+    this.exitReplyMode();
     UI.els.reply.value = currentText;
     UI.els.reply.style.height = 'auto';
     UI.els.reply.style.height = Math.min(UI.els.reply.scrollHeight, 100) + 'px';

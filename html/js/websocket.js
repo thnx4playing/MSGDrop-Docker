@@ -1,4 +1,12 @@
-// WebSocket manager with session-ok cookie authentication
+// ============================================================================
+// WEBSOCKET.JS - Complete with Receipt Handlers
+// ============================================================================
+// Changes:
+// - Added sendReadReceipt method
+// - Added delivery_receipt and read_receipt event handlers
+// - Support for replyToSeq in sendMessage
+// ============================================================================
+
 var WebSocketManager = {
   ws: null,
   dropId: null,
@@ -15,11 +23,6 @@ var WebSocketManager = {
   presenceTimeouts: new Map(),
   heartbeatInterval: null,
 
-  /**
-   * Helper function to get cookie value by name
-   * @param {string} name - Cookie name
-   * @returns {string|null} - Cookie value or null if not found
-   */
   getCookie: function(name) {
     var matches = document.cookie.match(new RegExp(
       '(?:^|; )' + name.replace(/([\.$?*|{}\(\)\[\]\\\/\+^])/g, '\\$1') + '=([^;]*)'
@@ -27,31 +30,21 @@ var WebSocketManager = {
     return matches ? decodeURIComponent(matches[1]) : null;
   },
 
-  /**
-   * Connect to WebSocket with session token authentication
-   * @param {string} dropId - Drop ID to connect to
-   * @param {string} userLabel - User role/label (E or M)
-   */
   connect: function(dropId, userLabel){
     if(!CONFIG.USE_WS) return;
     
     this.dropId = dropId;
     this.userLabel = userLabel;
     
-    // ✅ CLEAN FIX: Read session-ok cookie instead of msgdrop_sess
-    // session-ok contains the same signed token, but is NOT HttpOnly
     var sessionToken = this.getCookie('session-ok');
     
     if(!sessionToken) {
       console.error('[WS] No session token found - user not authenticated');
-      
-      // Redirect to unlock page with return URL
       var returnUrl = encodeURIComponent(window.location.pathname + window.location.search);
       window.location.href = '/unlock/?next=' + returnUrl;
       return;
     }
     
-    // Check if token is just "true" (old format)
     if(sessionToken === 'true') {
       console.error('[WS] session-ok has old format - need to re-login');
       var returnUrl = encodeURIComponent(window.location.pathname + window.location.search);
@@ -59,7 +52,6 @@ var WebSocketManager = {
       return;
     }
     
-    // ✅ Include session token in WebSocket URL
     var url = CONFIG.WS_URL 
       + '?sessionToken=' + encodeURIComponent(sessionToken)
       + '&dropId=' + encodeURIComponent(dropId) 
@@ -75,24 +67,19 @@ var WebSocketManager = {
         console.log('[WS] Connection established');
         if(UI.setLive) UI.setLive('Connected (Live)');
         
-        // Mark self as active immediately
         this.updatePresence(this.userLabel, true);
         
-        // Send heartbeat every 30 seconds to maintain presence
         if(this.heartbeatInterval) clearInterval(this.heartbeatInterval);
         this.heartbeatInterval = setInterval(function(){
           this.sendHeartbeat();
         }.bind(this), 30000);
         
-        // Send ONE heartbeat immediately
         this.sendHeartbeat();
         
-        // Wait 500ms, then request presence once
         setTimeout(function(){
           this.requestPresence();
         }.bind(this), 500);
         
-        // Request game list immediately on connect
         setTimeout(function(){
           WebSocketManager.requestGameList();
         }, 200);
@@ -101,18 +88,13 @@ var WebSocketManager = {
       this.ws.onmessage = function(ev){
         try {
           var msg = JSON.parse(ev.data || '{}');
-          console.log('[WS] Received message:', msg);
+          console.log('[WS] Received message:', msg.type || msg);
           
           if(msg.type === 'update'){
-            // Handle both {type: 'update', data: {...}} (direct response) and {type: 'update'} (broadcast)
             if(msg.data){
-              // Direct response with full drop data (from chat/gif actions)
               if(this.onUpdateCallback) this.onUpdateCallback(msg.data);
             } else {
-              // Broadcast update notification - trigger refresh via polling or fetch
-              // The callback will handle fetching fresh data if needed
               if(this.onUpdateCallback && typeof API !== 'undefined'){
-                // Fetch fresh data when receiving broadcast update
                 API.fetchDrop(this.dropId).then(function(data){
                   if(this.onUpdateCallback) this.onUpdateCallback(data);
                 }.bind(this)).catch(function(e){
@@ -133,12 +115,14 @@ var WebSocketManager = {
           } else if(msg.type === 'streak' && msg.data){
             if(this.onStreakCallback) this.onStreakCallback(msg.data);
           } else if(msg.type === 'delivery_receipt' && msg.data){
-            // Handle delivery receipt
+            // Handle delivery receipt - update message status instantly
+            console.log('[WS] Delivery receipt:', msg.data);
             if(typeof Messages !== 'undefined' && Messages.handleDeliveryReceipt){
               Messages.handleDeliveryReceipt(msg.data);
             }
           } else if(msg.type === 'read_receipt' && msg.data){
-            // Handle read receipt
+            // Handle read receipt - update message status instantly
+            console.log('[WS] Read receipt:', msg.data);
             if(typeof Messages !== 'undefined' && Messages.handleReadReceipt){
               Messages.handleReadReceipt(msg.data);
             }
@@ -156,19 +140,13 @@ var WebSocketManager = {
         
         if(UI.setLive) UI.setLive('Connected (Polling)');
         
-        // Clear heartbeat interval
         if(this.heartbeatInterval){
           clearInterval(this.heartbeatInterval);
           this.heartbeatInterval = null;
         }
         
-        // ✅ Handle authentication failures
-        // Code 1008 = Policy Violation (used by API Gateway for 401/403)
-        // Code 1006 = Abnormal Closure (connection failed during handshake)
         if(event.code === 1008 || event.code === 1006){
           console.warn('[WS] Authentication may have failed - check session');
-          
-          // Check if session cookie still exists
           var sessionToken = this.getCookie('session-ok');
           if(!sessionToken || sessionToken === 'true'){
             console.error('[WS] Session lost or invalid - redirecting to login');
@@ -180,15 +158,7 @@ var WebSocketManager = {
       
       this.ws.onerror = function(e){
         console.error('[WS] Connection error:', e);
-        
-        // Check if this might be an authentication issue
         var sessionToken = this.getCookie('session-ok');
-        if(!sessionToken){
-          console.error('[WS] Session token missing during connection error');
-        } else if(sessionToken === 'true'){
-          console.error('[WS] Session token has old format - need to re-login');
-        }
-        // Proactively redirect to unlock if token missing
         if(!sessionToken || sessionToken === 'true'){
           var returnUrl = encodeURIComponent(window.location.pathname + window.location.search);
           window.location.href = '/unlock/?next=' + returnUrl;
@@ -200,9 +170,6 @@ var WebSocketManager = {
     }
   },
 
-  /**
-   * Send typing indicator to other users
-   */
   sendTyping: function(){
     if(!this.ws || this.ws.readyState !== 1) return;
     
@@ -221,87 +188,12 @@ var WebSocketManager = {
     }
   },
 
-  /**
-   * Send game action message
-   */
-  sendGameAction: function(payload){
-    if(!this.ws || this.ws.readyState !== 1) return;
-    try {
-      this.ws.send(JSON.stringify({
-        action: 'game',
-        type: 'game',
-        payload: payload
-      }));
-    } catch(e){
-      console.error('[WS] Failed to send game action:', e);
-    }
-  },
-
-  /**
-   * Request list of active games
-   */
-  requestGameList: function(){
-    this.sendGameAction({ op: 'request_game_list' });
-  },
-
-  /**
-   * Start a new game
-   */
-  startGame: function(gameType, gameData){
-    this.sendGameAction({ op: 'start', gameType: gameType, gameData: gameData });
-  },
-
-  /**
-   * Join an existing game
-   */
-  joinGame: function(gameId){
-    this.sendGameAction({ op: 'join_game', gameId: gameId });
-  },
-
-  /**
-   * Send a game move
-   */
-  sendMove: function(gameId, moveData){
-    this.sendGameAction({ op: 'move', gameId: gameId, moveData: moveData });
-  },
-
-  /**
-   * End a game
-   */
-  endGame: function(gameId, result){
-    this.sendGameAction({ op: 'end_game', gameId: gameId, result: result });
-  },
-
-  /**
-   * Send heartbeat to maintain connection and presence
-   */
-  sendHeartbeat: function(){
-    if(!this.ws || this.ws.readyState !== 1) return;
-    
-    try {
-      // Only send YOUR OWN user role, not everyone's state
-      this.ws.send(JSON.stringify({
-        action: 'presence',
-        payload: { 
-          user: this.userLabel,
-          state: 'active',
-          ts: Date.now()
-        }
-      }));
-    } catch(e){
-      console.error('[WS] Send heartbeat failed:', e);
-    }
-  },
-
-  /**
-   * Send read receipt via WebSocket
-   * @param {number} upToSeq - Mark messages as read up to this seq
-   * @param {string} reader - User who read the messages
-   */
+  // Send read receipt to mark messages as read
   sendReadReceipt: function(upToSeq, reader){
     if(!this.ws || this.ws.readyState !== 1) return false;
     
     try {
+      console.log('[WS] Sending read receipt:', upToSeq, reader);
       this.ws.send(JSON.stringify({
         action: 'read',
         payload: {
@@ -316,13 +208,57 @@ var WebSocketManager = {
     }
   },
 
-  /**
-   * Send text message via WebSocket
-   * @param {string} text - Message text
-   * @param {string} user - User sending the message
-   * @param {string} clientId - Client ID
-   * @param {number} replyToSeq - Optional seq of message being replied to
-   */
+  sendGameAction: function(payload){
+    if(!this.ws || this.ws.readyState !== 1) return;
+    try {
+      this.ws.send(JSON.stringify({
+        action: 'game',
+        type: 'game',
+        payload: payload
+      }));
+    } catch(e){
+      console.error('[WS] Failed to send game action:', e);
+    }
+  },
+
+  requestGameList: function(){
+    this.sendGameAction({ op: 'request_game_list' });
+  },
+
+  startGame: function(gameType, gameData){
+    this.sendGameAction({ op: 'start', gameType: gameType, gameData: gameData });
+  },
+
+  joinGame: function(gameId){
+    this.sendGameAction({ op: 'join_game', gameId: gameId });
+  },
+
+  sendMove: function(gameId, moveData){
+    this.sendGameAction({ op: 'move', gameId: gameId, moveData: moveData });
+  },
+
+  endGame: function(gameId, result){
+    this.sendGameAction({ op: 'end_game', gameId: gameId, result: result });
+  },
+
+  sendHeartbeat: function(){
+    if(!this.ws || this.ws.readyState !== 1) return;
+    
+    try {
+      this.ws.send(JSON.stringify({
+        action: 'presence',
+        payload: { 
+          user: this.userLabel,
+          state: 'active',
+          ts: Date.now()
+        }
+      }));
+    } catch(e){
+      console.error('[WS] Send heartbeat failed:', e);
+    }
+  },
+
+  // Send message with optional replyToSeq
   sendMessage: function(text, user, clientId, replyToSeq){
     if(!this.ws || this.ws.readyState !== 1) return false;
     
@@ -333,7 +269,6 @@ var WebSocketManager = {
         clientId: clientId
       };
       
-      // Include replyToSeq if replying
       if(replyToSeq){
         payload.replyToSeq = replyToSeq;
       }
@@ -349,9 +284,6 @@ var WebSocketManager = {
     }
   },
 
-  /**
-   * Send GIF message via WebSocket
-   */
   sendGIF: function(gifData, user, clientId){
     if(!this.ws || this.ws.readyState !== 1) return false;
     
@@ -375,27 +307,19 @@ var WebSocketManager = {
     }
   },
 
-  /**
-   * Request presence information from all connected users
-   */
   requestPresence: function(){
     if(!this.ws || this.ws.readyState !== 1) return;
     
     try {
       this.ws.send(JSON.stringify({
         action: 'presence_request',
-        payload: {
-          ts: Date.now()
-        }
+        payload: { ts: Date.now() }
       }));
     } catch(e){
       console.error('[WS] Request presence failed:', e);
     }
   },
 
-  /**
-   * Handle incoming presence updates
-   */
   handlePresence: function(data){
     var user = data.user;
     var state = data.state;
@@ -405,41 +329,29 @@ var WebSocketManager = {
     
     if(!user) return;
     
-    // Clear existing timeout when receiving new heartbeat
     if(this.presenceTimeouts.has(user)){
       clearTimeout(this.presenceTimeouts.get(user));
       this.presenceTimeouts.delete(user);
     }
     
-    // Update presence state
     this.presenceState.set(user, { state: state, ts: ts });
-    
-    // Update UI immediately
     this.updatePresence(user, state === 'active');
     
-    // Set timeout to mark as away after 60 seconds (2x heartbeat interval) of no heartbeat
-    // Only set timeout for 'active' state
     if(state === 'active'){
       var timeout = setTimeout(function(){
         this.updatePresence(user, false);
         this.presenceTimeouts.delete(user);
-      }.bind(this), 60000);  // 60 seconds (2x heartbeat interval for safer buffer)
+      }.bind(this), 60000);
       this.presenceTimeouts.set(user, timeout);
     }
   },
 
-  /**
-   * Update UI presence indicator
-   */
   updatePresence: function(role, isActive){
     if(UI && UI.updatePresence){
       UI.updatePresence(role, isActive);
     }
   },
 
-  /**
-   * Disconnect WebSocket connection
-   */
   disconnect: function(){
     if(this.heartbeatInterval){
       clearInterval(this.heartbeatInterval);

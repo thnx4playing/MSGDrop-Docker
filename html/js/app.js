@@ -1,4 +1,11 @@
-// Main application
+// ============================================================================
+// APP.JS - Updated for Unified Actions Modal
+// ============================================================================
+// Changes:
+// - Removed delete button event delegation (now in reactions.js modal)
+// - Removed cancelReplyBtn listener (keeping it - still needed)
+// ============================================================================
+
 var App = {
   dropId: '',
   pollTimer: null,
@@ -6,69 +13,49 @@ var App = {
   myRole: null,
 
   init: function(){
-    // Check if user is authenticated - if not, redirect to /unlock
     Storage.requireAuth();
     
-    // Start periodic cookie expiration checks
     if(typeof CookieChecker !== 'undefined'){
       CookieChecker.init();
     }
     
-    // Get drop ID from URL
     try {
       this.dropId = new URL(window.location.href).searchParams.get('drop') || 'default';
     } catch (e) {
       this.dropId = 'default';
     }
 
-    // Initialize client ID and role
     this.myClientId = Storage.getClientId();
     this.myRole = Storage.getRole(this.dropId);
     Messages.myRole = this.myRole;
 
-    // Initialize UI
     UI.init();
-
-    // ✨ Initialize GIPHY picker BEFORE setting up event listeners
     this.initGiphy();
 
-    // Initialize Camera
     if(typeof Camera !== 'undefined'){
       Camera.init();
     }
 
-    // Setup all event listeners
     this.setupEventListeners();
-
-    // Setup components
     Reactions.setup();
     this.setupEmoji();
     this.startCountdownTimer();
-
-    // Load initial data and connect
     this.loadInitialData();
-
-    // Periodic session validation (redirect if expired)
     this.startSessionChecks();
   },
   
-  // ✨ NEW: Initialize GIPHY picker
   initGiphy: function(){
     var self = this;
     
-    // Check if GiphyPicker is available
     if(typeof GiphyPicker === 'undefined'){
       console.warn('GiphyPicker not loaded - GIPHY functionality disabled');
       return;
     }
     
-    // Initialize GIPHY picker with API key
     this.giphyPicker = new GiphyPicker('mrWcrFYs1lvhwbxxNNM3hmb9hUkFfbk4');
-    
     console.log('✓ GIPHY picker initialized');
   },
 
-  // Periodic session check via lightweight HEAD call
   startSessionChecks: function(){
     var self = this;
     setInterval(async function(){
@@ -85,11 +72,9 @@ var App = {
   
   loadInitialData: async function(){
     try {
-      // ⚡ OPTIMIZED: Fetch messages AND images in one call!
       var data = await API.fetchDrop(this.dropId);
       Messages.applyDrop(data);
       
-      // ⚡ OPTIMIZED: Images already loaded from combined response
       if(data.images){
         Images.list = data.images.map(function(im){
           return {
@@ -101,14 +86,12 @@ var App = {
         Images.render();
       }
       
-      // Fetch streak (non-blocking - don't fail if endpoint doesn't exist)
       if(typeof Streak !== 'undefined'){
         Streak.fetch(this.dropId).catch(function(e){
           console.log('Streak fetch failed (endpoint may not exist yet):', e);
         });
       }
       
-      // Setup WebSocket callbacks
       WebSocketManager.onUpdateCallback = function(data){ Messages.applyDrop(data); };
       WebSocketManager.onTypingCallback = function(data){ Messages.handleTyping(data); };
       WebSocketManager.onGameCallback = function(data){ Game.applyGame(data); };
@@ -117,10 +100,8 @@ var App = {
         if(typeof Streak !== 'undefined') Streak.handleWebSocketUpdate(data); 
       };
       
-      // Connect WebSocket (no PIN needed - cookies sent automatically)
       WebSocketManager.connect(this.dropId, this.myRole);
       
-      // Start polling as fallback
       if(CONFIG.USE_POLL){
         this.startPolling();
       }
@@ -130,7 +111,7 @@ var App = {
     } catch(e){
       console.error('Failed to load initial data:', e);
       if(e.message === 'AUTH_REQUIRED'){
-        // Already redirected in API.fetchDrop
+        // Already redirected
       } else {
         UI.setLive('Error loading data');
       }
@@ -155,7 +136,7 @@ var App = {
       });
     }
 
-    // ✨ NEW: GIF button
+    // GIF button
     var gifButton = document.getElementById('gif-button');
     console.log('Setting up GIF button:', gifButton, 'giphyPicker:', this.giphyPicker);
     if(gifButton && this.giphyPicker){
@@ -244,19 +225,8 @@ var App = {
       });
     }
 
-    // Delete message
-    if(UI.els.chatContainer){
-      UI.els.chatContainer.addEventListener('click', async function(ev){
-        var t = ev.target;
-        if(t && t.classList && t.classList.contains('delete-btn')){
-          var seq = parseInt(t.getAttribute('data-seq'), 10);
-          if(isNaN(seq)) return;
-          var ok = confirm('Delete this message?');
-          if(!ok) return;
-          await self.deleteMessage(seq);
-        }
-      });
-    }
+    // NOTE: Delete button handling is now in reactions.js (unified modal)
+    // No need for event delegation here anymore
 
     // Lightbox
     if(UI.els.lbCloseCenter) {
@@ -277,7 +247,6 @@ var App = {
     if(UI.els.reply){
       UI.els.reply.addEventListener('input', function(){
         WebSocketManager.sendTyping();
-        // Auto-resize textarea
         this.style.height = 'auto';
         this.style.height = Math.min(this.scrollHeight, 100) + 'px';
       });
@@ -295,7 +264,6 @@ var App = {
         Game.startNewGame();
       });
     }
-    // Close button for games popover
     var gamesPopoverClose = document.getElementById('gamesPopoverClose');
     if(gamesPopoverClose){
       gamesPopoverClose.addEventListener('click', function(){
@@ -307,7 +275,6 @@ var App = {
         Game.closeGame();
       });
     }
-    // Wire up the second close button (the "Close" button at bottom)
     var gameCloseBtn2 = document.getElementById('gameCloseBtn2');
     if(gameCloseBtn2){
       gameCloseBtn2.addEventListener('click', function(){
@@ -343,13 +310,11 @@ var App = {
         UI.hideThumbModal();
         Reactions.closePicker();
         UI.hideUserRoleModal();
-        Messages.exitReplyMode();  // Cancel reply mode
-        // ✨ NEW: Close GIPHY modal on ESC
+        Messages.exitReplyMode();
         if(self.giphyPicker && self.giphyPicker.modal && 
            self.giphyPicker.modal.style.display === 'flex'){
           self.giphyPicker.hide();
         }
-        // Close Camera modal on ESC
         if(typeof Camera !== 'undefined' && Camera.isOpen){
           Camera.hide();
         }
@@ -395,11 +360,9 @@ var App = {
     var self = this;
     this.pollTimer=setInterval(async function(){ 
       try{
-        // ⚡ OPTIMIZED: Get both messages and images in one call
         var data = await API.fetchDrop(self.dropId);
         Messages.applyDrop(data);
         
-        // ⚡ OPTIMIZED: Update images from combined response
         if(data.images){
           Images.list = data.images.map(function(im){
             return {
@@ -443,7 +406,6 @@ var App = {
     this.updateRoleSelection();
     UI.hideUserRoleModal();
     
-    // Reconnect WebSocket with new role if already connected
     if(WebSocketManager.ws){
       WebSocketManager.ws.close();
       setTimeout(function(){
@@ -467,21 +429,17 @@ var App = {
     }
   },
 
-  // ✨ NEW: Send GIF message
   sendGifMessage: function(gifData){
     console.log('Sending GIF:', gifData);
     
-    // Try WebSocket first (faster, real-time)
     if(WebSocketManager.ws && WebSocketManager.ws.readyState === 1){
       var sent = WebSocketManager.sendGIF(gifData, this.myRole, this.myClientId);
       if(sent){
         console.log('GIF sent via WebSocket');
-        
         return;
       }
     }
     
-    // Fallback to HTTP POST if WebSocket unavailable
     console.log('WebSocket not available, using HTTP fallback');
     
     var payload = {
@@ -524,23 +482,18 @@ var App = {
     
     if(UI.els.postBtn) UI.els.postBtn.disabled=true;
     
-    // Get reply context before clearing
     var replyToSeq = Messages.replyingToSeq;
     
     try{
       console.log('Sending message:', text, replyToSeq ? '(reply to ' + replyToSeq + ')' : '');
       
-      // Try WebSocket first (faster, real-time)
       if(WebSocketManager.ws && WebSocketManager.ws.readyState === 1){
         var sent = WebSocketManager.sendMessage(text, this.myRole, this.myClientId, replyToSeq);
         if(sent){
-          // Message sent via WebSocket - response will come via onmessage handler
-          // Clear input and reply mode immediately for better UX
           UI.els.reply.value='';
           UI.els.reply.style.height = 'auto';
-          Messages.exitReplyMode();  // Clear reply mode
+          Messages.exitReplyMode();
           
-          // Re-enable button
           setTimeout(function(){
             if(UI.els.postBtn) UI.els.postBtn.disabled=false;
           }, 500);
@@ -548,7 +501,6 @@ var App = {
         }
       }
       
-      // Fallback to HTTP POST if WebSocket unavailable
       var res = await API.postMessage(this.dropId, text, Messages.currentVersion, this.myRole, this.myClientId, replyToSeq);
       if (!res.ok){ 
         if(res.status === 409){
@@ -563,14 +515,12 @@ var App = {
       
       UI.els.reply.value='';
       UI.els.reply.style.height = 'auto';
-      Messages.exitReplyMode();  // Clear reply mode
+      Messages.exitReplyMode();
       
-      // ⚡ OPTIMIZED: Single fetch gets both messages and images
       setTimeout(async function(){ 
         var data = await API.fetchDrop(this.dropId);
         Messages.applyDrop(data);
         
-        // Update images from combined response
         if(data.images){
           Images.list = data.images.map(function(im){
             return {
@@ -657,7 +607,6 @@ var App = {
   }
 };
 
-// Initialize when DOM is ready
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', function(){ App.init(); });
 } else {
