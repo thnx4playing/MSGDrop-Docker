@@ -1,3 +1,6 @@
+// Path: html/js/messages.js
+// Uploaded: 2026-01-16T01:07:13.472Z
+
 // ============================================================================
 // MESSAGES.JS - Production Version with Read Receipts
 // ============================================================================
@@ -260,22 +263,15 @@ var Messages = {
         
         var imageContainer = document.createElement('div');
         imageContainer.className = 'image-container';
-        imageContainer.style.maxWidth = '200px';
-        imageContainer.style.maxHeight = '200px';
-        imageContainer.style.overflow = 'hidden';
         
         var img = document.createElement('img');
         img.src = msg.imageThumb || msg.imageUrl;
         img.alt = msg.message || 'Image';
         img.className = 'image-thumbnail';
         img.loading = 'lazy';
-        img.style.width = '200px';
-        img.style.maxWidth = '200px';
-        img.style.height = '200px';
-        img.style.maxHeight = '200px';
-        img.style.objectFit = 'cover';
-        img.style.cursor = 'pointer';
-        img.style.display = 'block';
+        
+        // Store the full URL for lightbox
+        var originalUrl = msg.imageUrl || msg.imageThumb || '';
         
         // Scroll to bottom when image loads (fixes partial visibility)
         img.addEventListener('load', function(){
@@ -287,15 +283,110 @@ var Messages = {
           }
         });
         
-        img.addEventListener('click', function(e){
-          e.stopPropagation();
-          // Open the actions modal instead of lightbox
-          // Users can view full size from modal if needed
-          var group = bubble.closest('.message-group');
-          if(group && Reactions && Reactions.openPicker){
-            Reactions.openPicker(bubble);
+        // ============================================================
+        // IMAGE TAP BEHAVIOR:
+        // - Single tap = Open fullscreen lightbox
+        // - Long press = Open actions modal (reactions, reply, delete)
+        // ============================================================
+        
+        (function(imgEl, fullUrl, bubbleEl){
+          var longPressTimer = null;
+          var longPressTriggered = false;
+          var touchHandled = false; // Track if touch already handled this interaction
+          var touchStartX = 0;
+          var touchStartY = 0;
+          var LONG_PRESS_DURATION = 500; // ms
+          var MOVE_THRESHOLD = 10; // px - cancel if finger moves too much
+          
+          function openLightbox(){
+            if(fullUrl && UI.openLightbox){
+              UI.openLightbox(fullUrl + '?t=' + Date.now());
+            }
           }
-        });
+          
+          function openActionsModal(){
+            var group = bubbleEl.closest('.message-group');
+            if(group && Reactions && Reactions.openPicker){
+              Reactions.openPicker(bubbleEl);
+            }
+          }
+          
+          function clearLongPress(){
+            if(longPressTimer){
+              clearTimeout(longPressTimer);
+              longPressTimer = null;
+            }
+          }
+          
+          // Touch events for mobile
+          imgEl.addEventListener('touchstart', function(e){
+            longPressTriggered = false;
+            touchHandled = false;
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+            
+            longPressTimer = setTimeout(function(){
+              longPressTriggered = true;
+              touchHandled = true;
+              // Haptic feedback if available
+              if(navigator.vibrate){
+                navigator.vibrate(50);
+              }
+              openActionsModal();
+            }, LONG_PRESS_DURATION);
+          }, { passive: true });
+          
+          imgEl.addEventListener('touchmove', function(e){
+            // Cancel long press if finger moves too much
+            var dx = Math.abs(e.touches[0].clientX - touchStartX);
+            var dy = Math.abs(e.touches[0].clientY - touchStartY);
+            if(dx > MOVE_THRESHOLD || dy > MOVE_THRESHOLD){
+              clearLongPress();
+            }
+          }, { passive: true });
+          
+          imgEl.addEventListener('touchend', function(e){
+            clearLongPress();
+            
+            // If long press wasn't triggered, treat as tap = open lightbox
+            if(!longPressTriggered){
+              touchHandled = true;
+              e.preventDefault();
+              e.stopPropagation();
+              openLightbox();
+            }
+            longPressTriggered = false;
+          });
+          
+          imgEl.addEventListener('touchcancel', function(){
+            clearLongPress();
+            longPressTriggered = false;
+            touchHandled = false;
+          });
+          
+          // Mouse events for desktop (and synthetic click after touch)
+          imgEl.addEventListener('click', function(e){
+            e.stopPropagation();
+            e.preventDefault();
+            
+            // Skip if this click follows a touch we already handled
+            if(touchHandled){
+              touchHandled = false;
+              return;
+            }
+            
+            // On desktop, single click opens lightbox
+            openLightbox();
+          });
+          
+          // Right-click on desktop opens actions modal
+          imgEl.addEventListener('contextmenu', function(e){
+            e.preventDefault();
+            e.stopPropagation();
+            openActionsModal();
+          });
+          
+        })(img, originalUrl, bubble);
         
         imageContainer.appendChild(img);
         bubble.appendChild(imageContainer);
@@ -331,15 +422,105 @@ var Messages = {
         img.style.height = displayHeight + 'px';
         img.loading = 'lazy';
         
-        img.addEventListener('click', function(e){
-          e.stopPropagation();
-          // Open the actions modal instead of lightbox
-          // Users can view full size from modal if needed
-          var group = bubble.closest('.message-group');
-          if(group && Reactions && Reactions.openPicker){
-            Reactions.openPicker(bubble);
+        // Store the full URL for lightbox
+        var gifFullUrl = msg.gifUrl;
+        
+        // ============================================================
+        // GIF TAP BEHAVIOR (same as images):
+        // - Single tap = Open fullscreen lightbox
+        // - Long press = Open actions modal
+        // ============================================================
+        
+        (function(imgEl, fullUrl, bubbleEl){
+          var longPressTimer = null;
+          var longPressTriggered = false;
+          var touchHandled = false; // Track if touch already handled this interaction
+          var touchStartX = 0;
+          var touchStartY = 0;
+          var LONG_PRESS_DURATION = 500;
+          var MOVE_THRESHOLD = 10;
+          
+          function openLightbox(){
+            if(fullUrl && UI.openLightbox){
+              UI.openLightbox(fullUrl + '?t=' + Date.now());
+            }
           }
-        });
+          
+          function openActionsModal(){
+            var group = bubbleEl.closest('.message-group');
+            if(group && Reactions && Reactions.openPicker){
+              Reactions.openPicker(bubbleEl);
+            }
+          }
+          
+          function clearLongPress(){
+            if(longPressTimer){
+              clearTimeout(longPressTimer);
+              longPressTimer = null;
+            }
+          }
+          
+          imgEl.addEventListener('touchstart', function(e){
+            longPressTriggered = false;
+            touchHandled = false;
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+            
+            longPressTimer = setTimeout(function(){
+              longPressTriggered = true;
+              touchHandled = true;
+              if(navigator.vibrate){
+                navigator.vibrate(50);
+              }
+              openActionsModal();
+            }, LONG_PRESS_DURATION);
+          }, { passive: true });
+          
+          imgEl.addEventListener('touchmove', function(e){
+            var dx = Math.abs(e.touches[0].clientX - touchStartX);
+            var dy = Math.abs(e.touches[0].clientY - touchStartY);
+            if(dx > MOVE_THRESHOLD || dy > MOVE_THRESHOLD){
+              clearLongPress();
+            }
+          }, { passive: true });
+          
+          imgEl.addEventListener('touchend', function(e){
+            clearLongPress();
+            if(!longPressTriggered){
+              touchHandled = true;
+              e.preventDefault();
+              e.stopPropagation();
+              openLightbox();
+            }
+            longPressTriggered = false;
+          });
+          
+          imgEl.addEventListener('touchcancel', function(){
+            clearLongPress();
+            longPressTriggered = false;
+            touchHandled = false;
+          });
+          
+          imgEl.addEventListener('click', function(e){
+            e.stopPropagation();
+            e.preventDefault();
+            
+            // Skip if this click follows a touch we already handled
+            if(touchHandled){
+              touchHandled = false;
+              return;
+            }
+            
+            openLightbox();
+          });
+          
+          imgEl.addEventListener('contextmenu', function(e){
+            e.preventDefault();
+            e.stopPropagation();
+            openActionsModal();
+          });
+          
+        })(img, gifFullUrl, bubble);
         
         gifContainer.appendChild(img);
         bubble.appendChild(gifContainer);
@@ -423,9 +604,14 @@ var Messages = {
       if(e.target.closest('.msg-reactions')) return;
       if(e.target.closest('.reply-bubble')) return;
       
-      // For GIFs and images: clicking directly on the image opens lightbox (handled separately)
-      // But clicking elsewhere on the bubble (caption, padding) should open modal
-      // The image click handlers have stopPropagation, so they won't reach here
+      // Images and GIFs have their own click handlers that open lightbox
+      // Check if click was on the image/gif OR within the image/gif container
+      if(e.target.classList.contains('image-thumbnail') || e.target.classList.contains('gif-image')){
+        return; // Let the image's own handler deal with it
+      }
+      if(e.target.closest('.image-container') || e.target.closest('.gif-container')){
+        return; // Click was in image area - don't open modal
+      }
       
       var group = msgEl.closest('.message-group');
       if(group && Reactions && Reactions.openPicker) {
